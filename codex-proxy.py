@@ -125,7 +125,11 @@ async def tool_proxy(request: Request, path: str):
                     match = re.search(r"(\{[\s\S]*?\})", content)
                 if match:
                     try:
-                        fallback_tool_call = json.loads(match.group(1))
+                        # Compact/minimize the extracted JSON string
+                        json_str = match.group(1)
+                        # Remove leading/trailing whitespace from each line and join
+                        json_str_min = ''.join(line.strip() for line in json_str.splitlines())
+                        fallback_tool_call = json.loads(json_str_min)
                         logger.info(f"Fallback tool call: parsed JSON: {fallback_tool_call}")
                     except Exception as e:
                         logger.info(f"Fallback tool call: JSON parse error: {e}")
