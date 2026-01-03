@@ -112,6 +112,7 @@ async def tool_proxy(request: Request, path: str):
                 choices = resp_json.get("choices")
                 if choices and "message" in choices[0]:
                     content = choices[0]["message"].get("content")
+                    logger.info(f"Fallback tool call: extracted content: {repr(content)}")
                     if content:
                         import re
                         # Find JSON code block
@@ -121,7 +122,9 @@ async def tool_proxy(request: Request, path: str):
                         if match:
                             try:
                                 fallback_tool_call = json.loads(match.group(1))
-                            except Exception:
+                                logger.info(f"Fallback tool call: parsed JSON: {fallback_tool_call}")
+                            except Exception as e:
+                                logger.info(f"Fallback tool call: JSON parse error: {e}")
                                 fallback_tool_call = None
             if fallback_tool_call and isinstance(fallback_tool_call, dict) and "name" in fallback_tool_call:
                 tool_name = fallback_tool_call["name"]
