@@ -32,6 +32,7 @@ target_openai_url = os.environ.get("VLLM_API_URL", "http://apple.stephensdev.com
 # Tool-call aware proxy
 @app.api_route("/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH"])
 async def tool_proxy(request: Request, path: str):
+    logger.info("TEST LOG LINE: Entered tool_proxy endpoint.")
     method = request.method
     url = f"{target_openai_url}/{path}"
     headers = dict(request.headers)
@@ -56,18 +57,18 @@ async def tool_proxy(request: Request, path: str):
             async with httpx.AsyncClient(timeout=6000) as client:
                 resp = await client.request(method, url, headers=headers, content=body)
             # Try to parse response as JSON
+            resp_json = None
             try:
                 resp_json = resp.json()
             except Exception:
                 resp_json = None
-            # Print the full LLM response JSON for debugging
             logger.info(f"LLM response JSON (for fallback tool call debug): {json.dumps(resp_json, indent=2)}")
-            # Debug: print the full LLM response JSON
             logger.info(f"LLM response JSON: {json.dumps(resp_json, indent=2)}")
-            # Check for tool calls in OpenAI function/tool calling format
+
             tool_calls = None
+            fallback_tool_call = None
+            # 1. Try OpenAI tool call format if JSON
             if resp_json:
-                # OpenAI: choices[0].message.tool_calls
                 choices = resp_json.get("choices")
                 if choices and "message" in choices[0]:
                     tool_calls = choices[0]["message"].get("tool_calls")
@@ -76,7 +77,6 @@ async def tool_proxy(request: Request, path: str):
                 for call in tool_calls:
                     tool_name = call.get("function", {}).get("name") or call.get("name")
                     arguments = call.get("function", {}).get("arguments") or call.get("arguments")
-                    # Arguments may be a JSON string
                     if isinstance(arguments, str):
                         try:
                             arguments = json.loads(arguments)
@@ -87,7 +87,6 @@ async def tool_proxy(request: Request, path: str):
                         "tool_call_id": call.get("id"),
                         "output": result["output"]
                     })
-                # Compose a tool message to send back to the LLM (role: tool)
                 if json_body and "messages" in json_body:
                     messages = json_body["messages"][:]
                     for call, result in zip(tool_calls, tool_results):
@@ -96,7 +95,6 @@ async def tool_proxy(request: Request, path: str):
                             "tool_call_id": result["tool_call_id"],
                             "content": result["output"]
                         })
-                    # Re-ask the LLM with the tool results
                     new_payload = dict(json_body)
                     new_payload["messages"] = messages
                     async with httpx.AsyncClient(timeout=6000) as client:
@@ -107,32 +105,35 @@ async def tool_proxy(request: Request, path: str):
                         status_code=final_resp.status_code,
                         media_type=final_resp.headers.get("content-type", "application/json"),
                     )
-            # If no tool call, just return the original response
-            # Fallback: Check for tool call JSON in plain text message (Ollama)
-            fallback_tool_call = None
+            # 2. Fallback: Try to extract tool call from JSON code block or object in content (Ollama style)
+            content = None
             if resp_json:
                 choices = resp_json.get("choices")
                 if choices and "message" in choices[0]:
                     content = choices[0]["message"].get("content")
-                    logger.info(f"Fallback tool call: extracted content: {repr(content)}")
-                    if content:
-                        import re
-                        # Find JSON code block
-                        match = re.search(r"```json\s*(\{[\s\S]*?\})\s*```", content)
-                        if not match:
-                            match = re.search(r"(\{[\s\S]*?\})", content)
-                        if match:
-                            try:
-                                fallback_tool_call = json.loads(match.group(1))
-                                logger.info(f"Fallback tool call: parsed JSON: {fallback_tool_call}")
-                            except Exception as e:
-                                logger.info(f"Fallback tool call: JSON parse error: {e}")
-                                fallback_tool_call = None
+            # If no JSON, or no content, try resp.text directly
+            if not content:
+                try:
+                    content = resp.text
+                except Exception:
+                    content = None
+            logger.info(f"Fallback tool call: extracted content: {repr(content)}")
+            if content:
+                import re
+                match = re.search(r"```json\s*(\{[\s\S]*?\})\s*```", content)
+                if not match:
+                    match = re.search(r"(\{[\s\S]*?\})", content)
+                if match:
+                    try:
+                        fallback_tool_call = json.loads(match.group(1))
+                        logger.info(f"Fallback tool call: parsed JSON: {fallback_tool_call}")
+                    except Exception as e:
+                        logger.info(f"Fallback tool call: JSON parse error: {e}")
+                        fallback_tool_call = None
             if fallback_tool_call and isinstance(fallback_tool_call, dict) and "name" in fallback_tool_call:
                 tool_name = fallback_tool_call["name"]
                 arguments = fallback_tool_call.get("arguments", {})
                 result = run_tool(tool_name, arguments)
-                # Compose a tool message to send back to the LLM (role: tool)
                 if json_body and "messages" in json_body:
                     messages = json_body["messages"][:]
                     messages.append({
