@@ -139,12 +139,12 @@ async def tool_proxy(request: Request, path: str):
                 if json_str:
                     try:
                         # Decode all escape sequences (including \n, \", etc.)
-                        json_str_decoded = bytes(json_str, "utf-8").decode("unicode_escape")
+                        json_str_decoded = bytes(json_str, "utf-8").decode("unicode_escape").strip()
                         fallback_tool_call = json.loads(json_str_decoded)
                         logger.info(f"Fallback tool call: parsed JSON: {fallback_tool_call}")
                     except Exception as e:
                         logger.info(f"Fallback tool call: JSON parse error: {e}")
-                        logger.info(f"Fallback tool call: cleaned content: {json_str}")
+                        logger.info(f"Fallback tool call: cleaned content: {json_str_decoded if 'json_str_decoded' in locals() else json_str}")
                         fallback_tool_call = None
             if fallback_tool_call and isinstance(fallback_tool_call, dict) and "name" in fallback_tool_call:
                 tool_name = fallback_tool_call["name"]
