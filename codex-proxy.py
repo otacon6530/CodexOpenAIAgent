@@ -129,8 +129,6 @@ async def tool_proxy(request: Request, path: str):
                     # Remove leading 'json' if present
                     if json_str.lower().startswith('json'):
                         json_str = json_str[4:].lstrip('\n\r\t ')
-                    # Replace all literal \n with real newlines
-                    json_str = json_str.replace('\\n', '\n')
                     # Remove any leading/trailing backticks
                     json_str = json_str.strip('`').strip()
                 else:
@@ -140,7 +138,9 @@ async def tool_proxy(request: Request, path: str):
                         json_str = match.group(1).strip()
                 if json_str:
                     try:
-                        fallback_tool_call = json.loads(json_str)
+                        # Decode all escape sequences (including \n, \", etc.)
+                        json_str_decoded = bytes(json_str, "utf-8").decode("unicode_escape")
+                        fallback_tool_call = json.loads(json_str_decoded)
                         logger.info(f"Fallback tool call: parsed JSON: {fallback_tool_call}")
                     except Exception as e:
                         logger.info(f"Fallback tool call: JSON parse error: {e}")
