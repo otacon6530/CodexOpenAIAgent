@@ -140,6 +140,10 @@ async def tool_proxy(request: Request, path: str):
                     try:
                         # Decode all escape sequences (including \n, \", etc.)
                         json_str_decoded = bytes(json_str, "utf-8").decode("unicode_escape").strip()
+                        # Remove any remaining triple backticks and optional 'json' marker at start/end
+                        import re
+                        json_str_decoded = re.sub(r'^```(?:json)?', '', json_str_decoded, flags=re.IGNORECASE).strip()
+                        json_str_decoded = re.sub(r'```$', '', json_str_decoded, flags=re.IGNORECASE).strip()
                         fallback_tool_call = json.loads(json_str_decoded)
                         logger.info(f"Fallback tool call: parsed JSON: {fallback_tool_call}")
                     except Exception as e:
