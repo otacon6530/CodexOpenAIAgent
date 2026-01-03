@@ -56,33 +56,85 @@ def codex_to_openai(codex_payload: Dict[str, Any]) -> Dict[str, Any]:
     into a standard OpenAI /v1/chat/completions request.
     """
     messages = []
-
-    # Codex sends conversation history inside "input": [...]
+    # 1. Conversation history (Codex: input[] -> OpenAI: messages[])
     for item in codex_payload.get("input", []):
         if item.get("type") != "message":
             continue
-
         role = item.get("role", "user")
         content_blocks = item.get("content", [])
-
         text_parts = []
         for block in content_blocks:
-            # We care about the text-bearing blocks
             if block.get("type") in ("input_text", "output_text"):
                 text_parts.append(block.get("text", ""))
-
         text = "\n".join(text_parts).strip()
         if text:
             messages.append({"role": role, "content": text})
-
     if not messages:
-        # Fallback: if nothing parsed, at least send *something*
         messages = [{"role": "user", "content": "No usable content found in Codex input."}]
 
-    return {
+    # 2. System/instructions (Codex: instructions -> OpenAI: system message)
+    instructions = codex_payload.get("instructions")
+    if instructions:
+        # Insert as first message if not already present
+        if not (messages and messages[0]["role"] == "system"):
+            messages.insert(0, {"role": "system", "content": instructions})
+
+    # 3. Tool/function calling (Codex: tools/tool_choice -> OpenAI: tools/tool_choice)
+    tools = codex_payload.get("tools")
+    tool_choice = codex_payload.get("tool_choice")
+    openai_tools = None
+    openai_tool_choice = None
+    if tools:
+        # Only pass if OpenAI-compatible (function type)
+        openai_tools = []
+        for tool in tools:
+            if tool.get("type") == "function" and "function" in tool:
+                openai_tools.append(tool)
+        if not openai_tools:
+            openai_tools = None
+    if tool_choice:
+        openai_tool_choice = tool_choice
+
+    # 4. Sampling/params
+    params = {}
+    for field in ["temperature", "top_p", "max_output_tokens", "max_tokens", "n", "stop"]:
+        if field in codex_payload:
+            # Codex uses max_output_tokens, OpenAI uses max_tokens
+            if field == "max_output_tokens":
+                params["max_tokens"] = codex_payload[field]
+            else:
+                params[field] = codex_payload[field]
+
+    # 5. Streaming
+    if "stream" in codex_payload:
+        params["stream"] = codex_payload["stream"]
+
+    # 6. Metadata/user (Codex: metadata -> OpenAI: user)
+    if "metadata" in codex_payload:
+        # OpenAI supports a 'user' field for tracking
+        user = codex_payload["metadata"].get("user")
+        if user:
+            params["user"] = user
+
+    # 7. Drop or log Codex-specific fields not supported by OpenAI
+    codex_only_fields = [
+        "conversation", "previous_response_id", "store", "service_tier", "background", "truncation"
+    ]
+    for field in codex_only_fields:
+        if field in codex_payload and DEBUG_MODE:
+            logger.info(f"Codex field '{field}' present but not supported by OpenAI API: {codex_payload[field]}")
+
+    # Compose OpenAI payload
+    openai_payload = {
         "model": MODEL_NAME,
         "messages": messages,
     }
+    if openai_tools:
+        openai_payload["tools"] = openai_tools
+    if openai_tool_choice:
+        openai_payload["tool_choice"] = openai_tool_choice
+    openai_payload.update(params)
+    return openai_payload
 
 
 # -----------------------------
