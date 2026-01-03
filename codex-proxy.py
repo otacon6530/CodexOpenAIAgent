@@ -140,12 +140,16 @@ async def tool_proxy(request: Request, path: str):
                     try:
                         # Decode all escape sequences (including \n, \", etc.)
                         json_str_decoded = bytes(json_str, "utf-8").decode("unicode_escape").strip()
-                        # Remove any remaining triple backticks and optional 'json' marker at start/end
+                        # Extract the first JSON object from the decoded string
                         import re
-                        json_str_decoded = re.sub(r'^```(?:json)?', '', json_str_decoded, flags=re.IGNORECASE).strip()
-                        json_str_decoded = re.sub(r'```$', '', json_str_decoded, flags=re.IGNORECASE).strip()
-                        fallback_tool_call = json.loads(json_str_decoded)
-                        logger.info(f"Fallback tool call: parsed JSON: {fallback_tool_call}")
+                        match = re.search(r'(\{[\s\S]*?\})', json_str_decoded)
+                        if match:
+                            json_obj_str = match.group(1)
+                            fallback_tool_call = json.loads(json_obj_str)
+                            logger.info(f"Fallback tool call: parsed JSON: {fallback_tool_call}")
+                        else:
+                            logger.info(f"Fallback tool call: no JSON object found after cleaning.")
+                            fallback_tool_call = None
                     except Exception as e:
                         logger.info(f"Fallback tool call: JSON parse error: {e}")
                         logger.info(f"Fallback tool call: cleaned content: {json_str_decoded if 'json_str_decoded' in locals() else json_str}")
