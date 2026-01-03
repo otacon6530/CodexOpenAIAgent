@@ -119,23 +119,36 @@ async def tool_proxy(request: Request, path: str):
                     content = None
             logger.info(f"Fallback tool call: extracted content: {repr(content)}")
             if content:
+
                 import re
-                # Find all code blocks (```json ... ``` or ``` ... ```)
-                code_blocks = re.findall(r'```(?:json)?\s*([\s\S]*?)\s*```', content, re.IGNORECASE)
-                json_str = None
-                if code_blocks:
-                    # Use the last code block (most recent tool call)
-                    json_str = code_blocks[-1].strip()
-                    # Remove leading 'json' if present
-                    if json_str.lower().startswith('json'):
-                        json_str = json_str[4:].lstrip('\n\r\t ')
-                    # Remove any leading/trailing backticks
-                    json_str = json_str.strip('`').strip()
+                # Extract JSON from code block with or without 'json' marker
+                # Handles: ```json\n{...}\n```, ```\n{...}\n```, or just {...}
+                code_block_pattern = re.compile(r"```(?:json)?\s*([\s\S]*?)\s*```", re.IGNORECASE)
+                match = code_block_pattern.search(content)
+                if match:
+                    json_str = match.group(1)
                 else:
-                    # Fallback: look for any JSON object in the content
-                    match = re.search(r'(\{[\s\S]*?\})', content)
+                    # Fallback: try to find a JSON object in the text
+                    json_pattern = re.compile(r"({[\s\S]*})")
+                    match = json_pattern.search(content)
                     if match:
-                        json_str = match.group(1).strip()
+                        json_str = match.group(1)
+                    else:
+                        json_str = content
+
+                # Remove any leading/trailing whitespace and newlines
+                json_str = json_str.strip()
+
+                # Remove a leading 'json' marker (with or without newline)
+                if json_str.lower().startswith('json'):
+                    json_str = json_str[4:].lstrip('\n').lstrip('\r').strip()
+
+                # Remove any remaining triple backticks (shouldn't be present, but just in case)
+                if json_str.startswith('```'):
+                    json_str = json_str[3:].strip()
+                if json_str.endswith('```'):
+                    json_str = json_str[:-3].strip()
+
                 if json_str:
                     try:
                         # Decode all escape sequences (including \n, \", etc.)
