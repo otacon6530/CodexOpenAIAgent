@@ -41,7 +41,7 @@ app = FastAPI()
 
 # Base URL for your vLLM / Ollama / other OpenAI-compatible server
 # Example: export VLLM_API_URL="http://apple.stephensdev.com:8000"
-target_openai_url = os.environ.get("VLLM_API_URL", "http://apple.stephensdev.com:8000")
+target_openai_url = os.environ.get("VLLM_API_URL", "http://localhost:11434")
 
 # Model to send to vLLM/Ollama
 MODEL_NAME = "Qwen/Qwen2.5-Coder-7B-Instruct-AWQ"  # change to your model
@@ -187,46 +187,82 @@ def openai_to_codex(openai_response: Dict[str, Any]) -> Dict[str, Any]:
 # -----------------------------
 #  Codex /v1/responses endpoint
 # -----------------------------
+
+from fastapi.responses import StreamingResponse
+import asyncio
+
 @app.post("/v1/responses")
 async def proxy_responses(request: Request):
     """
     Main entrypoint for Codex Agent Protocol calls.
     Codex posts here; we translate and forward to vLLM/Ollama.
+    Handles both streaming and non-streaming requests.
     """
-
     try:
         codex_payload = await request.json()
         openai_payload = codex_to_openai(codex_payload)
+        is_stream = openai_payload.get("stream", False)
         if DEBUG_MODE:
             logger.info("/v1/responses Codex payload: %s", json.dumps(codex_payload))
             logger.info("/v1/responses OpenAI payload: %s", json.dumps(openai_payload))
 
-        async with httpx.AsyncClient() as client:
-            resp = await client.post(
-                f"{target_openai_url}/v1/chat/completions",
-                json=openai_payload,
-            )
+        if is_stream:
+            async def stream_generator():
+                try:
+                    async with httpx.AsyncClient(timeout=None) as client:
+                        async with client.stream("POST", f"{target_openai_url}/v1/chat/completions", json=openai_payload) as resp:
+                            buffer = ""
+                            async for chunk in resp.aiter_text():
+                                buffer += chunk
+                                # OpenAI/vLLM streams as lines starting with 'data: '
+                                while "\n" in buffer:
+                                    line, buffer = buffer.split("\n", 1)
+                                    line = line.strip()
+                                    if not line or not line.startswith("data: "):
+                                        continue
+                                    data = line[6:]
+                                    if data == "[DONE]":
+                                        return
+                                    try:
+                                        openai_chunk = json.loads(data)
+                                        codex_chunk = openai_to_codex(openai_chunk)
+                                        # Stream as JSON line
+                                        yield json.dumps(codex_chunk) + "\n"
+                                    except Exception as e:
+                                        if DEBUG_MODE:
+                                            logger.error("/v1/responses stream chunk error: %s", str(e))
+                                            logger.error("/v1/responses stream raw chunk: %s", data)
+                except Exception as e:
+                    if DEBUG_MODE:
+                        logger.exception("/v1/responses streaming outer error: %s", str(e))
+                    # Optionally yield an error chunk
+                    yield json.dumps({"error": str(e)}) + "\n"
 
-        try:
-            llm_json = resp.json()
-        except Exception as e:
-            llm_json = {
-                "error": {
-                    "status_code": resp.status_code,
-                    "text": resp.text,
+            return StreamingResponse(stream_generator(), media_type="application/json")
+        else:
+            async with httpx.AsyncClient() as client:
+                resp = await client.post(
+                    f"{target_openai_url}/v1/chat/completions",
+                    json=openai_payload,
+                )
+            try:
+                llm_json = resp.json()
+            except Exception as e:
+                llm_json = {
+                    "error": {
+                        "status_code": resp.status_code,
+                        "text": resp.text,
+                    }
                 }
-            }
+                if DEBUG_MODE:
+                    logger.error("/v1/responses JSON parse error: %s", str(e))
+                    logger.error("/v1/responses Raw response: %s", resp.text)
             if DEBUG_MODE:
-                logger.error("/v1/responses JSON parse error: %s", str(e))
-                logger.error("/v1/responses Raw response: %s", resp.text)
-
-        if DEBUG_MODE:
-            logger.info("/v1/responses LLM JSON: %s", json.dumps(llm_json))
-
-        codex_output = openai_to_codex(llm_json)
-        if DEBUG_MODE:
-            logger.info("/v1/responses Codex output: %s", json.dumps(codex_output))
-        return codex_output
+                logger.info("/v1/responses LLM JSON: %s", json.dumps(llm_json))
+            codex_output = openai_to_codex(llm_json)
+            if DEBUG_MODE:
+                logger.info("/v1/responses Codex output: %s", json.dumps(codex_output))
+            return codex_output
     except Exception as e:
         if DEBUG_MODE:
             logger.exception("/v1/responses Exception: %s", str(e))
@@ -332,7 +368,7 @@ def main():
         DEBUG_MODE = True
         logger.setLevel(logging.DEBUG)
         logger.info("Debug mode enabled.")
-    uvicorn.run(app, host="0.0.0.0", port=5555)
+    uvicorn.run(app, host="0.0.0.0", port=1234)
 
 if __name__ == "__main__":
     main()
