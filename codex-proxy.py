@@ -126,21 +126,19 @@ async def tool_proxy(request: Request, path: str):
                 if code_blocks:
                     # Use the last code block (most recent tool call)
                     json_str = code_blocks[-1].strip()
-                    # If the first line is 'json', remove it
+                    # Remove leading 'json' if present
                     if json_str.lower().startswith('json'):
                         json_str = json_str[4:].lstrip('\n\r\t ')
+                    # Replace all literal \n with real newlines
+                    json_str = json_str.replace('\\n', '\n')
+                    # Remove any leading/trailing backticks
+                    json_str = json_str.strip('`').strip()
                 else:
                     # Fallback: look for any JSON object in the content
                     match = re.search(r'(\{[\s\S]*?\})', content)
                     if match:
                         json_str = match.group(1).strip()
                 if json_str:
-                    # Unescape if needed (handles \" and similar)
-                    if json_str.startswith('"') and '\\"' in json_str:
-                        try:
-                            json_str = json.loads(json_str)
-                        except Exception:
-                            pass
                     try:
                         fallback_tool_call = json.loads(json_str)
                         logger.info(f"Fallback tool call: parsed JSON: {fallback_tool_call}")
