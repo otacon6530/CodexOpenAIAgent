@@ -106,6 +106,45 @@ async def tool_proxy(request: Request, path: str):
                         media_type=final_resp.headers.get("content-type", "application/json"),
                     )
             # If no tool call, just return the original response
+            # Fallback: Check for tool call JSON in plain text message (Ollama)
+            fallback_tool_call = None
+            if resp_json:
+                choices = resp_json.get("choices")
+                if choices and "message" in choices[0]:
+                    content = choices[0]["message"].get("content")
+                    if content:
+                        import re
+                        # Find JSON code block
+                        match = re.search(r"```json\s*(\{[\s\S]*?\})\s*```", content)
+                        if not match:
+                            match = re.search(r"(\{[\s\S]*?\})", content)
+                        if match:
+                            try:
+                                fallback_tool_call = json.loads(match.group(1))
+                            except Exception:
+                                fallback_tool_call = None
+            if fallback_tool_call and isinstance(fallback_tool_call, dict) and "name" in fallback_tool_call:
+                tool_name = fallback_tool_call["name"]
+                arguments = fallback_tool_call.get("arguments", {})
+                result = run_tool(tool_name, arguments)
+                # Compose a tool message to send back to the LLM (role: tool)
+                if json_body and "messages" in json_body:
+                    messages = json_body["messages"][:]
+                    messages.append({
+                        "role": "tool",
+                        "tool_call_id": "fallback",
+                        "content": result["output"]
+                    })
+                    new_payload = dict(json_body)
+                    new_payload["messages"] = messages
+                    async with httpx.AsyncClient(timeout=6000) as client:
+                        final_resp = await client.request(method, url, headers=headers, json=new_payload)
+                    logger.info(f"Fallback tool call handled, returning LLM response after tool execution.")
+                    return Response(
+                        content=final_resp.content,
+                        status_code=final_resp.status_code,
+                        media_type=final_resp.headers.get("content-type", "application/json"),
+                    )
             logger.info(f"No tool call detected, returning original LLM response.")
             return Response(
                 content=resp.content,
