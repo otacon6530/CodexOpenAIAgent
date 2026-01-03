@@ -72,21 +72,23 @@ async def tool_proxy(request: Request, path: str):
                 choices = resp_json.get("choices")
                 if choices and "message" in choices[0]:
                     tool_calls = choices[0]["message"].get("tool_calls")
+            # Only handle OpenAI-style tool_calls
+            tool_calls = None
+            if resp_json:
+                choices = resp_json.get("choices")
+                if choices and "message" in choices[0]:
+                    tool_calls = choices[0]["message"].get("tool_calls")
             if tool_calls:
                 tool_results = []
                 for call in tool_calls:
                     tool_name = call.get("function", {}).get("name") or call.get("name")
                     arguments = call.get("function", {}).get("arguments") or call.get("arguments")
-                    if isinstance(arguments, str):
-                        try:
-                            arguments = json.loads(arguments)
-                        except Exception:
-                            arguments = {}
                     result = run_tool(tool_name, arguments or {})
                     tool_results.append({
                         "tool_call_id": call.get("id"),
                         "output": result["output"]
                     })
+                # Insert tool results as new messages and resend to LLM
                 if json_body and "messages" in json_body:
                     messages = json_body["messages"][:]
                     for call, result in zip(tool_calls, tool_results):
@@ -105,105 +107,10 @@ async def tool_proxy(request: Request, path: str):
                         status_code=final_resp.status_code,
                         media_type=final_resp.headers.get("content-type", "application/json"),
                     )
-            # 2. Fallback: Try to extract tool call from JSON code block or object in content (Ollama style)
-            content = None
-            if resp_json:
-                choices = resp_json.get("choices")
-                if choices and "message" in choices[0]:
-                    content = choices[0]["message"].get("content")
-            # If no JSON, or no content, try resp.text directly
-            if not content:
-                try:
-                    content = resp.text
-                except Exception:
-                    content = None
-            logger.info(f"Fallback tool call: extracted content: {repr(content)}")
-            if content:
 
-                import re
-                # Extract JSON from code block with or without 'json' marker
-                # Handles: ```json\n{...}\n```, ```\n{...}\n```, or just {...}
-                code_block_pattern = re.compile(r"```(?:json)?\s*([\s\S]*?)\s*```", re.IGNORECASE)
-                match = code_block_pattern.search(content)
-                if match:
-                    json_str = match.group(1)
-                else:
-                    # Fallback: try to find a JSON object in the text
-                    json_pattern = re.compile(r"({[\s\S]*})")
-                    match = json_pattern.search(content)
-                    if match:
-                        json_str = match.group(1)
-                    else:
-                        json_str = content
-
-                # Remove any leading/trailing whitespace and newlines
-                json_str = json_str.strip()
-
-                # Remove a leading 'json' marker (with or without newline)
-                if json_str.lower().startswith('json'):
-                    json_str = json_str[4:].lstrip('\n').lstrip('\r').strip()
-
-                # Remove any remaining triple backticks (shouldn't be present, but just in case)
-                if json_str.startswith('```'):
-                    json_str = json_str[3:].strip()
-                if json_str.endswith('```'):
-                    json_str = json_str[:-3].strip()
-
-                if json_str:
-                    try:
-                        # Decode all escape sequences (including \n, \", etc.)
-                        json_str_decoded = bytes(json_str, "utf-8").decode("unicode_escape").strip()
-                        # Remove all code block markers (```json, ```) from the string
-                        import re
-                        json_str_decoded = re.sub(r'```json', '', json_str_decoded, flags=re.IGNORECASE)
-                        json_str_decoded = re.sub(r'```', '', json_str_decoded)
-                        json_str_decoded = json_str_decoded.strip()
-                        # Extract the first JSON object from the cleaned string
-                        match = re.search(r'(\{[\s\S]*?\})', json_str_decoded)
-                        if match:
-                            json_obj_str = match.group(1)
-                            try:
-                                fallback_tool_call = json.loads(json_obj_str)
-                                logger.info(f"Fallback tool call: parsed JSON: {fallback_tool_call}")
-                            except Exception as e1:
-                                # Try unescaping again and parsing
-                                try:
-                                    json_obj_str_unescaped = bytes(json_obj_str, "utf-8").decode("unicode_escape")
-                                    fallback_tool_call = json.loads(json_obj_str_unescaped)
-                                    logger.info(f"Fallback tool call: parsed JSON after second unescape: {fallback_tool_call}")
-                                except Exception as e2:
-                                    logger.info(f"Fallback tool call: JSON parse error after second unescape: {e2}")
-                                    logger.info(f"Fallback tool call: cleaned content: {json_obj_str_unescaped if 'json_obj_str_unescaped' in locals() else json_obj_str}")
-                                    fallback_tool_call = None
-                        else:
-                            logger.info(f"Fallback tool call: no JSON object found after cleaning.")
-                            fallback_tool_call = None
-                    except Exception as e:
-                        logger.info(f"Fallback tool call: JSON parse error: {e}")
-                        logger.info(f"Fallback tool call: cleaned content: {json_str_decoded if 'json_str_decoded' in locals() else json_str}")
-                        fallback_tool_call = None
-            if fallback_tool_call and isinstance(fallback_tool_call, dict) and "name" in fallback_tool_call:
-                tool_name = fallback_tool_call["name"]
-                arguments = fallback_tool_call.get("arguments", {})
-                result = run_tool(tool_name, arguments)
-                if json_body and "messages" in json_body:
-                    messages = json_body["messages"][:]
-                    messages.append({
-                        "role": "tool",
-                        "tool_call_id": "fallback",
-                        "content": result["output"]
-                    })
-                    new_payload = dict(json_body)
-                    new_payload["messages"] = messages
-                    async with httpx.AsyncClient(timeout=6000) as client:
-                        final_resp = await client.request(method, url, headers=headers, json=new_payload)
-                    logger.info(f"Fallback tool call handled, returning LLM response after tool execution.")
-                    return Response(
-                        content=final_resp.content,
-                        status_code=final_resp.status_code,
-                        media_type=final_resp.headers.get("content-type", "application/json"),
-                    )
-            logger.info(f"No tool call detected, returning original LLM response.")
+            # Log the tools parameter for debugging
+            if json_body and "tools" in json_body:
+                logger.info(f"Tools parameter sent to LLM backend: {json.dumps(json_body['tools'], indent=2)}")
             return Response(
                 content=resp.content,
                 status_code=resp.status_code,
