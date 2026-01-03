@@ -60,6 +60,8 @@ async def tool_proxy(request: Request, path: str):
                 resp_json = resp.json()
             except Exception:
                 resp_json = None
+            # Print the full LLM response JSON for debugging
+            logger.info(f"LLM response JSON (for fallback tool call debug): {json.dumps(resp_json, indent=2)}")
             # Debug: print the full LLM response JSON
             logger.info(f"LLM response JSON: {json.dumps(resp_json, indent=2)}")
             # Check for tool calls in OpenAI function/tool calling format
