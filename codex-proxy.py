@@ -120,22 +120,33 @@ async def tool_proxy(request: Request, path: str):
             logger.info(f"Fallback tool call: extracted content: {repr(content)}")
             if content:
                 import re
-                match = re.search(r"```json\s*(\{[\s\S]*?\})\s*```", content)
-                if not match:
-                    match = re.search(r"(\{[\s\S]*?\})", content)
-                if match:
+                # Find all code blocks (```json ... ``` or ``` ... ```)
+                code_blocks = re.findall(r'```(?:json)?\s*([\s\S]*?)\s*```', content, re.IGNORECASE)
+                json_str = None
+                if code_blocks:
+                    # Use the last code block (most recent tool call)
+                    json_str = code_blocks[-1].strip()
+                    # If the first line is 'json', remove it
+                    if json_str.lower().startswith('json'):
+                        json_str = json_str[4:].lstrip('\n\r\t ')
+                else:
+                    # Fallback: look for any JSON object in the content
+                    match = re.search(r'(\{[\s\S]*?\})', content)
+                    if match:
+                        json_str = match.group(1).strip()
+                if json_str:
+                    # Unescape if needed (handles \" and similar)
+                    if json_str.startswith('"') and '\\"' in json_str:
+                        try:
+                            json_str = json.loads(json_str)
+                        except Exception:
+                            pass
                     try:
-                        json_str = match.group(1)
-                        json_str = json_str.strip().lstrip('`').rstrip('`').strip()
-                        if json_str.lower().startswith('json'):
-                            json_str = json_str[4:].lstrip('\n\r\t ')
-                        # Unescape if needed (handles \" and similar)
-                        if '\\"' in json_str or json_str.startswith('"'):
-                            json_str = bytes(json_str, "utf-8").decode("unicode_escape")
                         fallback_tool_call = json.loads(json_str)
                         logger.info(f"Fallback tool call: parsed JSON: {fallback_tool_call}")
                     except Exception as e:
                         logger.info(f"Fallback tool call: JSON parse error: {e}")
+                        logger.info(f"Fallback tool call: cleaned content: {json_str}")
                         fallback_tool_call = None
             if fallback_tool_call and isinstance(fallback_tool_call, dict) and "name" in fallback_tool_call:
                 tool_name = fallback_tool_call["name"]
