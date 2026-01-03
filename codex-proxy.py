@@ -140,8 +140,6 @@ async def tool_proxy(request: Request, path: str):
                     try:
                         # Decode all escape sequences (including \n, \", etc.)
                         json_str_decoded = bytes(json_str, "utf-8").decode("unicode_escape").strip()
-                        # Handle double-escaped JSON: replace \\" with ", \\n with \n, etc.
-                        json_str_decoded = json_str_decoded.replace('\\"', '"').replace('\\n', '\n').replace('\\r', '\r').replace('\\t', '\t')
                         # Remove all code block markers (```json, ```) from the string
                         import re
                         json_str_decoded = re.sub(r'```json', '', json_str_decoded, flags=re.IGNORECASE)
@@ -151,8 +149,19 @@ async def tool_proxy(request: Request, path: str):
                         match = re.search(r'(\{[\s\S]*?\})', json_str_decoded)
                         if match:
                             json_obj_str = match.group(1)
-                            fallback_tool_call = json.loads(json_obj_str)
-                            logger.info(f"Fallback tool call: parsed JSON: {fallback_tool_call}")
+                            try:
+                                fallback_tool_call = json.loads(json_obj_str)
+                                logger.info(f"Fallback tool call: parsed JSON: {fallback_tool_call}")
+                            except Exception as e1:
+                                # Try unescaping again and parsing
+                                try:
+                                    json_obj_str_unescaped = bytes(json_obj_str, "utf-8").decode("unicode_escape")
+                                    fallback_tool_call = json.loads(json_obj_str_unescaped)
+                                    logger.info(f"Fallback tool call: parsed JSON after second unescape: {fallback_tool_call}")
+                                except Exception as e2:
+                                    logger.info(f"Fallback tool call: JSON parse error after second unescape: {e2}")
+                                    logger.info(f"Fallback tool call: cleaned content: {json_obj_str_unescaped if 'json_obj_str_unescaped' in locals() else json_obj_str}")
+                                    fallback_tool_call = None
                         else:
                             logger.info(f"Fallback tool call: no JSON object found after cleaning.")
                             fallback_tool_call = None
