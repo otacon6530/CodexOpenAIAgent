@@ -142,8 +142,12 @@ async def tool_proxy(request: Request, path: str):
                         json_str_decoded = bytes(json_str, "utf-8").decode("unicode_escape").strip()
                         # Handle double-escaped JSON: replace \\" with ", \\n with \n, etc.
                         json_str_decoded = json_str_decoded.replace('\\"', '"').replace('\\n', '\n').replace('\\r', '\r').replace('\\t', '\t')
-                        # Extract the first JSON object from the decoded string
+                        # Remove all code block markers (```json, ```) from the string
                         import re
+                        json_str_decoded = re.sub(r'```json', '', json_str_decoded, flags=re.IGNORECASE)
+                        json_str_decoded = re.sub(r'```', '', json_str_decoded)
+                        json_str_decoded = json_str_decoded.strip()
+                        # Extract the first JSON object from the cleaned string
                         match = re.search(r'(\{[\s\S]*?\})', json_str_decoded)
                         if match:
                             json_obj_str = match.group(1)
