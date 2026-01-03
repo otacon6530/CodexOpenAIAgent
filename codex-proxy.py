@@ -126,6 +126,9 @@ async def tool_proxy(request: Request, path: str):
                 if match:
                     try:
                         json_str = match.group(1)
+                        # Remove leading 'json' marker if present
+                        if json_str.lstrip().startswith('json'):
+                            json_str = json_str.lstrip()[4:].lstrip()
                         fallback_tool_call = json.loads(json_str)
                         logger.info(f"Fallback tool call: parsed JSON: {fallback_tool_call}")
                     except Exception as e:
