@@ -1,12 +1,27 @@
 # Python proxy between Codex CLI and OpenAI API (vllm)
 # Adds full /v1/responses translation for Codex Agent Protocol
 
+
+import argparse
+import logging
 from fastapi import FastAPI, Request, Response
 import httpx
 import uvicorn
 import os
 import json
 from typing import Dict
+
+
+# Global debug flag
+DEBUG_MODE = False
+
+# Set up logger
+logger = logging.getLogger("codex-proxy")
+logger.setLevel(logging.INFO)
+file_handler = logging.FileHandler("codex-proxy-debug.log")
+formatter = logging.Formatter('%(asctime)s %(levelname)s %(message)s')
+file_handler.setFormatter(formatter)
+logger.addHandler(file_handler)
 
 app = FastAPI()
 
@@ -126,34 +141,44 @@ async def proxy_responses(request: Request):
     Main entrypoint for Codex Agent Protocol calls.
     Codex posts here; we translate and forward to vLLM/Ollama.
     """
-    codex_payload = await request.json()
 
-    # Translate Codex -> OpenAI
-    openai_payload = codex_to_openai(codex_payload)
-
-    # Debug logging (optional)
-    # print("Codex payload:", json.dumps(codex_payload, indent=2))
-    # print("OpenAI payload:", json.dumps(openai_payload, indent=2))
-
-    async with httpx.AsyncClient() as client:
-        resp = await client.post(
-            f"{target_openai_url}/v1/chat/completions",
-            json=openai_payload,
-        )
-
-    # Try to parse JSON; if it fails, wrap the raw text as an error
     try:
-        llm_json = resp.json()
-    except Exception:
-        llm_json = {
-            "error": {
-                "status_code": resp.status_code,
-                "text": resp.text,
-            }
-        }
+        codex_payload = await request.json()
+        openai_payload = codex_to_openai(codex_payload)
+        if DEBUG_MODE:
+            logger.info("/v1/responses Codex payload: %s", json.dumps(codex_payload))
+            logger.info("/v1/responses OpenAI payload: %s", json.dumps(openai_payload))
 
-    codex_output = openai_to_codex(llm_json)
-    return codex_output
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(
+                f"{target_openai_url}/v1/chat/completions",
+                json=openai_payload,
+            )
+
+        try:
+            llm_json = resp.json()
+        except Exception as e:
+            llm_json = {
+                "error": {
+                    "status_code": resp.status_code,
+                    "text": resp.text,
+                }
+            }
+            if DEBUG_MODE:
+                logger.error("/v1/responses JSON parse error: %s", str(e))
+                logger.error("/v1/responses Raw response: %s", resp.text)
+
+        if DEBUG_MODE:
+            logger.info("/v1/responses LLM JSON: %s", json.dumps(llm_json))
+
+        codex_output = openai_to_codex(llm_json)
+        if DEBUG_MODE:
+            logger.info("/v1/responses Codex output: %s", json.dumps(codex_output))
+        return codex_output
+    except Exception as e:
+        if DEBUG_MODE:
+            logger.exception("/v1/responses Exception: %s", str(e))
+        return {"error": str(e)}
 
 
 # -----------------------------
@@ -195,14 +220,24 @@ async def proxy_completions(request: Request):
         with open("extra_codex_fields.log", "a") as logf:
             logf.write(json.dumps({"extra": extra_fields, "full": body}) + "\n")
 
-    async with httpx.AsyncClient() as client:
-        resp = await client.post(f"{target_openai_url}/v1/completions", json=filtered_body)
 
-    return Response(
-        content=resp.content,
-        status_code=resp.status_code,
-        media_type=resp.headers.get("content-type", "application/json"),
-    )
+    try:
+        if DEBUG_MODE:
+            logger.info("/v1/completions Request body: %s", json.dumps(body))
+            logger.info("/v1/completions Filtered body: %s", json.dumps(filtered_body))
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(f"{target_openai_url}/v1/completions", json=filtered_body)
+        if DEBUG_MODE:
+            logger.info("/v1/completions Response: %s", resp.text)
+        return Response(
+            content=resp.content,
+            status_code=resp.status_code,
+            media_type=resp.headers.get("content-type", "application/json"),
+        )
+    except Exception as e:
+        if DEBUG_MODE:
+            logger.exception("/v1/completions Exception: %s", str(e))
+        return Response(content=json.dumps({"error": str(e)}), status_code=500)
 
 
 # -----------------------------
@@ -216,15 +251,36 @@ async def catch_all_proxy(request: Request, path: str):
     headers.pop("host", None)
     body = await request.body()
 
-    async with httpx.AsyncClient() as client:
-        resp = await client.request(method, url, headers=headers, content=body)
 
-    return Response(
-        content=resp.content,
-        status_code=resp.status_code,
-        media_type=resp.headers.get("content-type", "application/json"),
-    )
+    try:
+        if DEBUG_MODE:
+            logger.info("Catch-all %s %s headers: %s", method, url, json.dumps(headers))
+            logger.info("Catch-all %s %s body: %s", method, url, body.decode(errors='replace'))
+        async with httpx.AsyncClient() as client:
+            resp = await client.request(method, url, headers=headers, content=body)
+        if DEBUG_MODE:
+            logger.info("Catch-all %s %s response: %s", method, url, resp.text)
+        return Response(
+            content=resp.content,
+            status_code=resp.status_code,
+            media_type=resp.headers.get("content-type", "application/json"),
+        )
+    except Exception as e:
+        if DEBUG_MODE:
+            logger.exception("Catch-all proxy Exception: %s", str(e))
+        return Response(content=json.dumps({"error": str(e)}), status_code=500)
 
+
+def main():
+    global DEBUG_MODE
+    parser = argparse.ArgumentParser(description="Codex Proxy for OpenAI-compatible APIs")
+    parser.add_argument("--debug", action="store_true", help="Enable debug logging to codex-proxy-debug.log")
+    args = parser.parse_args()
+    if args.debug:
+        DEBUG_MODE = True
+        logger.setLevel(logging.DEBUG)
+        logger.info("Debug mode enabled.")
+    uvicorn.run(app, host="0.0.0.0", port=5555)
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=5555)
+    main()
