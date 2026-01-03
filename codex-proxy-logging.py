@@ -24,7 +24,7 @@ app = FastAPI()
 
 # Base URL for your OpenAI-compatible server
 # Example: export VLLM_API_URL="http://localhost:11434"
-target_openai_url = os.environ.get("VLLM_API_URL", "http://localhost:11434")
+target_openai_url = os.environ.get("VLLM_API_URL", "http://apple.stephensdev.com:11434")
 
 @app.api_route("/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH"])
 async def logging_proxy(request: Request, path: str):
@@ -43,7 +43,7 @@ async def logging_proxy(request: Request, path: str):
             logger.info(f"Incoming {method} {request.url.path} body: <binary>")
 
     try:
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(timeout=6000) as client:
             resp = await client.request(method, url, headers=headers, content=body)
         # Log outgoing response
         logger.info(f"Outgoing {method} {request.url.path} status: {resp.status_code}")
