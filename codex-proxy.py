@@ -140,6 +140,8 @@ async def tool_proxy(request: Request, path: str):
                     try:
                         # Decode all escape sequences (including \n, \", etc.)
                         json_str_decoded = bytes(json_str, "utf-8").decode("unicode_escape").strip()
+                        # Handle double-escaped JSON: replace \\" with ", \\n with \n, etc.
+                        json_str_decoded = json_str_decoded.replace('\\"', '"').replace('\\n', '\n').replace('\\r', '\r').replace('\\t', '\t')
                         # Extract the first JSON object from the decoded string
                         import re
                         match = re.search(r'(\{[\s\S]*?\})', json_str_decoded)
