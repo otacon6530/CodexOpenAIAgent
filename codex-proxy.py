@@ -126,11 +126,12 @@ async def tool_proxy(request: Request, path: str):
                 if match:
                     try:
                         json_str = match.group(1)
-                        # Remove leading/trailing whitespace and backticks
                         json_str = json_str.strip().lstrip('`').rstrip('`').strip()
-                        # Remove leading 'json' (case-insensitive) and any following newline/space
                         if json_str.lower().startswith('json'):
                             json_str = json_str[4:].lstrip('\n\r\t ')
+                        # Unescape if needed (handles \" and similar)
+                        if '\\"' in json_str or json_str.startswith('"'):
+                            json_str = bytes(json_str, "utf-8").decode("unicode_escape")
                         fallback_tool_call = json.loads(json_str)
                         logger.info(f"Fallback tool call: parsed JSON: {fallback_tool_call}")
                     except Exception as e:
