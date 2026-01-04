@@ -38,6 +38,8 @@ def _collect_response(client, history, on_chunk=None):
     return response, elapsed
 
 
+
+
 def _send(payload):
     sys.stdout.write(json.dumps(payload) + "\n")
     sys.stdout.flush()

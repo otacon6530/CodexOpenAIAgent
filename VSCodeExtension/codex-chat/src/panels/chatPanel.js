@@ -247,6 +247,11 @@ class ChatPanel {
             });
         }
 
+        // No streaming: ignore partial assistant messages
+        if (message.type === 'assistant' && message.partial === true) {
+            return;
+        }
+
         switch (message.type) {
             case 'ready':
                 this.setControlsEnabled(true);

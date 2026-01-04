@@ -89,6 +89,7 @@ class PythonBridge {
         }
         try {
             const payload = JSON.parse(trimmed);
+            // Streaming: if payload.type === 'assistant' and payload.partial, fire as partial
             this.messageEmitter.fire(payload);
         } catch (err) {
             this.errorEmitter.fire(`Failed to parse JSON line: ${(err && err.message) || err}\n${trimmed}`);

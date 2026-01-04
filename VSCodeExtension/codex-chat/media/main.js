@@ -45,6 +45,7 @@
         chatLog.scrollTop = chatLog.scrollHeight;
     }
 
+
     function labelForKind(kind) {
         switch (kind) {
             case 'user':

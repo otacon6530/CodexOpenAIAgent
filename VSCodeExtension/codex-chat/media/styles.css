@@ -60,6 +60,7 @@ body {
 
 .chat-entry {
     margin-bottom: 0.75rem;
+    white-space: pre-wrap;
 }
 
 .chat-entry.user {
@@ -99,6 +100,10 @@ body {
 
 .debug li + li {
     margin-top: 0.35rem;
+}
+
+.debug li {
+    white-space: pre-wrap;
 }
 
 .composer {
