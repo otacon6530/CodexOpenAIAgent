@@ -131,12 +131,38 @@ async def logging_proxy(request: Request, path: str):
         except Exception:
             logger.info(f"Outgoing {method} {request.url.path} response body: <binary>")
 
-        # If this is an SSE response, handle Codex tool calls
+        # If this is an SSE response, handle Codex tool calls and patch 'reasoning' to 'content'
         content_type = resp.headers.get("content-type", "")
         if "text/event-stream" in content_type:
-            modified = detect_and_handle_codex_tool_calls(resp.content)
+            # First, handle Codex tool calls
+            sse_content = detect_and_handle_codex_tool_calls(resp.content)
+            # Now patch streaming SSE responses: move 'reasoning' to 'content'
+            try:
+                lines = sse_content.decode(errors='replace').splitlines()
+                patched_lines = []
+                for line in lines:
+                    if line.startswith("data: "):
+                        try:
+                            payload = json.loads(line[6:])
+                            # Patch each chunk
+                            choices = payload.get("choices", [])
+                            for choice in choices:
+                                delta = choice.get("delta", {})
+                                if "reasoning" in delta and (not delta.get("content")):
+                                    delta["content"] = delta["reasoning"]
+                                    del delta["reasoning"]
+                            patched_line = "data: " + json.dumps(payload)
+                            patched_lines.append(patched_line)
+                        except Exception:
+                            patched_lines.append(line)
+                    else:
+                        patched_lines.append(line)
+                patched_content = "\n".join(patched_lines).encode()
+            except Exception as patch_err:
+                logger.warning(f"Failed to patch SSE response: {patch_err}")
+                patched_content = sse_content
             return Response(
-                content=modified,
+                content=patched_content,
                 status_code=resp.status_code,
                 media_type=content_type,
             )
