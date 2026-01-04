@@ -131,12 +131,12 @@ async def logging_proxy(request: Request, path: str):
         except Exception:
             logger.info(f"Outgoing {method} {request.url.path} response body: <binary>")
 
-        # If this is an SSE response, handle Codex tool calls and patch 'reasoning' to 'content'
+        # If this is an SSE response, handle Codex tool calls and strip 'reasoning'
         content_type = resp.headers.get("content-type", "")
         if "text/event-stream" in content_type:
             # First, handle Codex tool calls
             sse_content = detect_and_handle_codex_tool_calls(resp.content)
-            # Now patch streaming SSE responses: move 'reasoning' to 'content'
+            # Now patch streaming SSE responses: remove 'reasoning' from each chunk
             try:
                 lines = sse_content.decode(errors='replace').splitlines()
                 patched_lines = []
@@ -144,12 +144,11 @@ async def logging_proxy(request: Request, path: str):
                     if line.startswith("data: "):
                         try:
                             payload = json.loads(line[6:])
-                            # Patch each chunk
+                            # Remove 'reasoning' from each chunk
                             choices = payload.get("choices", [])
                             for choice in choices:
                                 delta = choice.get("delta", {})
-                                if "reasoning" in delta and (not delta.get("content")):
-                                    delta["content"] = delta["reasoning"]
+                                if "reasoning" in delta:
                                     del delta["reasoning"]
                             patched_line = "data: " + json.dumps(payload)
                             patched_lines.append(patched_line)
