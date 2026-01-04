@@ -47,6 +47,27 @@ def main():
     os_info = platform.system()
     os_message = f"You are running in a {os_info} environment. Use appropriate shell commands for this OS."
     history.add_system_message(os_message)
+
+    # Look for agent.md (case-insensitive) in root or codex_cli dir
+    import glob
+    import os as _os
+    agent_md_path = None
+    search_dirs = [os.getcwd(), _os.path.join(os.getcwd(), 'codex_cli')]
+    for d in search_dirs:
+        for f in glob.glob(_os.path.join(d, '*.[mM][dD]')):
+            if _os.path.basename(f).lower() == 'agent.md':
+                agent_md_path = f
+                break
+        if agent_md_path:
+            break
+    if agent_md_path:
+        try:
+            with open(agent_md_path, 'r', encoding='utf-8') as f:
+                agent_md_content = f.read()
+            history.add_system_message(agent_md_content)
+        except Exception as e:
+            print(f"[WARN] Failed to load agent.md: {e}")
+
     system_prompt = build_tools_prompt(tools)
     history.add_system_message(system_prompt)
 
@@ -155,56 +176,75 @@ def main():
                     CHAIN_LIMIT = config.get("chain_limit", 25)
                     history.add_user_message(user_input)
                     chat_log.append(('class:user', f'You: {user_input}\n'))
-                    # Step 1: Ask LLM to plan
-                    plan_prompt = (
-                        "Given the user's request, break it down into a numbered list of concrete steps (tools or actions) to achieve the goal. "
-                        f"Only plan up to {CHAIN_LIMIT} steps. Respond with the plan as a numbered list."
+                    # Router agent: ask LLM if plan or direct response is needed
+                    router_prompt = (
+                        f"Does the following user request require a multi-step plan (tools/actions) or can it be answered directly? Reply with 'plan' or 'respond'. Request: '{user_input}'"
                     )
-                    history.add_user_message(plan_prompt)
-                    t0 = time.time()
-                    plan_response = ""
+                    history.add_user_message(router_prompt)
+                    router_response = ""
                     for chunk in client.stream_chat(history.get_messages()):
-                        plan_response += chunk
-                    t1 = time.time()
-                    # Do not display the plan to the user
-                    if debug_metrics:
-                        elapsed = t1 - t0
-                        chat_log.append(('class:tool', f'[DEBUG] Planning time: {elapsed:.2f}s'))
-                    # Step 2: Parse plan steps
-                    steps = re.findall(r'\d+\.\s*(.*)', plan_response)
-                    if not steps:
-                        chat_log.append(('class:tool', '[No plan steps found. Proceeding with normal chat.]'))
-                        print_chat_log_bottom(chat_log, style)
-                        continue
-                    
-                    # Step 3: Execute each step up to chain limit, buffer output but do not display
-                    chain_steps = 0
-                    t_chain_start = time.time()
-                    chain_history = []
-                    for i, step in enumerate(steps[:CHAIN_LIMIT]):
-                        history.add_user_message(f"Step: {step}")
-                        step_response = ""
+                        router_response += chunk
+                    router_decision = router_response.strip().lower()
+                    # Remove router prompt from history for next step
+                    # Only remove if the last message is a user message and matches the router prompt
+                    if history.memory[0] and history.memory[0][-1]["role"] == "user" and router_prompt in history.memory[0][-1]["content"]:
+                        history.memory[0].pop()
+                    if 'plan' in router_decision:
+                        # Step 1: Ask LLM to plan
+                        plan_prompt = (
+                            "Given the user's request, break it down into a numbered list of concrete steps (tools or actions) to achieve the goal. "
+                            f"Only plan up to {CHAIN_LIMIT} steps. Respond with the plan as a numbered list."
+                        )
+                        history.add_user_message(plan_prompt)
+                        t0 = time.time()
+                        plan_response = ""
                         for chunk in client.stream_chat(history.get_messages()):
-                            step_response += chunk
-                        chain_history.append({"step": step, "response": step_response.strip()})
-                        history.add_assistant_message(step_response)
-                        chain_steps += 1
-                    t_chain_end = time.time()
-                    # After chain, call LLM to summari!ze the chain history for the original user request
-                    summary_prompt = (
-                        f"Provide a response that is appropriate based on the user's prommpt: '{user_input}'.\n"
-                        "Knowing these Steps and results:\n" +
-                        "\n".join([f"Step: {item['step']}\nResult: {item['response']}" for item in chain_history])
-                    )
-                    history.add_user_message(summary_prompt)
-                    summary_response = ""
-                    for chunk in client.stream_chat(history.get_messages()):
-                        summary_response += chunk
-                    chat_log.append(('class:assistant', summary_response.strip()))
-                    if debug_metrics:
-                        chat_log.append(('class:tool', f'[DEBUG] Chain steps: {chain_steps} | Chain time: {t_chain_end-t_chain_start:.2f}s'))
-                    chat_log.append(('class:tool', '\n[Chain complete. Returning to user input.]'))
-                    print_chat_log_bottom(chat_log, style)
+                            plan_response += chunk
+                        t1 = time.time()
+                        if debug_metrics:
+                            elapsed = t1 - t0
+                            chat_log.append(('class:tool', f'[DEBUG] Planning time: {elapsed:.2f}s'))
+                        # Step 2: Parse plan steps
+                        steps = re.findall(r'\d+\.\s*(.*)', plan_response)
+                        if not steps:
+                            chat_log.append(('class:tool', '[No plan steps found. Proceeding with normal chat.]'))
+                            print_chat_log_bottom(chat_log, style)
+                            continue
+                        # Step 3: Execute each step up to chain limit, buffer output but do not display
+                        chain_steps = 0
+                        t_chain_start = time.time()
+                        chain_history = []
+                        for i, step in enumerate(steps[:CHAIN_LIMIT]):
+                            history.add_user_message(f"Step: {step}")
+                            step_response = ""
+                            for chunk in client.stream_chat(history.get_messages()):
+                                step_response += chunk
+                            chain_history.append({"step": step, "response": step_response.strip()})
+                            history.add_assistant_message(step_response)
+                            chain_steps += 1
+                        t_chain_end = time.time()
+                        # After chain, call LLM to summarize the chain history for the original user request
+                        summary_prompt = (
+                            f"Provide a response that is appropriate based on the user's prompt: '{user_input}'.\n"
+                            "Knowing these Steps and results:\n" +
+                            "\n".join([f"Step: {item['step']}\nResult: {item['response']}" for item in chain_history])
+                        )
+                        history.add_user_message(summary_prompt)
+                        summary_response = ""
+                        for chunk in client.stream_chat(history.get_messages()):
+                            summary_response += chunk
+                        chat_log.append(('class:assistant', summary_response.strip()))
+                        if debug_metrics:
+                            chat_log.append(('class:tool', f'[DEBUG] Chain steps: {chain_steps} | Chain time: {t_chain_end-t_chain_start:.2f}s'))
+                        chat_log.append(('class:tool', '\n[Chain complete. Returning to user input.]'))
+                        print_chat_log_bottom(chat_log, style)
+                    else:
+                        # Direct response path
+                        direct_response = ""
+                        for chunk in client.stream_chat(history.get_messages()):
+                            direct_response += chunk
+                        chat_log.append(('class:assistant', direct_response.strip()))
+                        print_chat_log_bottom(chat_log, style)
             except (KeyboardInterrupt, EOFError):
                 print("\nExiting.")
                 break
