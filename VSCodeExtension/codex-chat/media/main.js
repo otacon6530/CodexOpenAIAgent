@@ -9,7 +9,7 @@
     const debugSection = document.getElementById('debugSection');
     const messageInput = document.getElementById('messageInput');
     const sendButton = document.getElementById('sendButton');
-    const toggleDebugButton = document.getElementById('toggleDebug');
+    const toggleDebugButton = document.getElementById('toggleDebug'));
     const listToolsButton = document.getElementById('listTools');
     const newSessionButton = document.getElementById('newSession');
     const reconnectButton = document.getElementById('reconnect');
@@ -32,6 +32,7 @@
             return;
         }
         appendEntry('user', text);
+        working = true;
         vscode.postMessage({ type: 'send', content: text });
         messageInput.value = '';
         messageInput.focus();
@@ -70,9 +71,14 @@
         debugList.parentElement.scrollTop = debugList.parentElement.scrollHeight;
     }
 
-    function setStatus(level, message) {
-        statusEl.textContent = message;
+    let working = false;
+    function setStatus(level, message, showSpinner = false) {
         statusEl.className = `status status-${level}`;
+        if (showSpinner) {
+            statusEl.innerHTML = '<span class="spinner"></span>' + message;
+        } else {
+            statusEl.textContent = message;
+        }
         appendEntry(level === 'error' ? 'error' : 'system', message);
     }
 
@@ -111,12 +117,21 @@
         switch (message.type) {
             case 'assistant':
                 appendEntry('assistant', message.message || '');
+                setStatus('info', 'Ready.');
+                working = false;
                 break;
             case 'system':
                 appendEntry('system', message.message || '');
                 break;
             case 'status':
-                setStatus(message.level || 'info', message.message || '');
+                // Show spinner for typical waiting/processing messages
+                if (message.message && /waiting|processing|responding|working|generating|thinking|please wait/i.test(message.message)) {
+                    setStatus(message.level || 'info', message.message || '', true);
+                    working = true;
+                } else {
+                    setStatus(message.level || 'info', message.message || '', false);
+                    working = false;
+                }
                 break;
             case 'debug-lines':
                 if (Array.isArray(message.lines)) {
