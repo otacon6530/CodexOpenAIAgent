@@ -166,7 +166,7 @@ def main():
                     for chunk in client.stream_chat(history.get_messages()):
                         plan_response += chunk
                     t1 = time.time()
-                    chat_log.append(('class:assistant', f'[Plan]\n{plan_response.strip()}\n'))
+                    # Do not display the plan to the user
                     if debug_metrics:
                         elapsed = t1 - t0
                         chat_log.append(('class:tool', f'[DEBUG] Planning time: {elapsed:.2f}s'))
@@ -176,6 +176,7 @@ def main():
                         chat_log.append(('class:tool', '[No plan steps found. Proceeding with normal chat.]'))
                         print_chat_log_bottom(chat_log, style)
                         continue
+                    
                     # Step 3: Execute each step up to chain limit, buffer output but do not display
                     chain_steps = 0
                     t_chain_start = time.time()
@@ -189,10 +190,10 @@ def main():
                         history.add_assistant_message(step_response)
                         chain_steps += 1
                     t_chain_end = time.time()
-                    # After chain, call LLM to summarize the chain history for the original user request
+                    # After chain, call LLM to summari!ze the chain history for the original user request
                     summary_prompt = (
-                        f"Summarize the following chain of steps and their results in a concise, user-focused way, geared toward answering the original user request: '{user_input}'.\n"
-                        "Steps and results:\n" +
+                        f"Provide a response that is appropriate based on the user's prommpt: '{user_input}'.\n"
+                        "Knowing these Steps and results:\n" +
                         "\n".join([f"Step: {item['step']}\nResult: {item['response']}" for item in chain_history])
                     )
                     history.add_user_message(summary_prompt)
