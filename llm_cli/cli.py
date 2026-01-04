@@ -12,6 +12,7 @@ def main():
     client = OpenAIClient(config)
     history = ConversationHistory()
     CHAIN_LIMIT = config.get("chain_limit", 25)
+    debug_metrics = config.get("debug_metrics", False)
     print("llm-cli (type 'exit' to quit)")
     import time
     while True:
@@ -20,6 +21,11 @@ def main():
             if user_input.lower() in ("exit", "quit"): break
             if not user_input: continue
 
+            # Debug toggle command
+            if user_input.lower() == '!debug':
+                debug_metrics = not debug_metrics
+                print(f"Debug metrics {'enabled' if debug_metrics else 'disabled'}.")
+                continue
             # Skill commands
             if user_input.lower() == '!skills':
                 skills = list_skills()
@@ -95,7 +101,7 @@ def main():
                 history.add_assistant_message(step_response)
                 chain_steps += 1
             t_chain_end = time.time()
-            if config.get("debug_metrics", False):
+            if debug_metrics:
                 print(f"[DEBUG] Planning time: {t1-t0:.2f}s | Chain steps: {chain_steps} | Chain time: {t_chain_end-t_chain_start:.2f}s")
             print("\n[Chain complete. Returning to user input.]")
         except (KeyboardInterrupt, EOFError):

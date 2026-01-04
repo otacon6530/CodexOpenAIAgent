@@ -92,6 +92,7 @@ def main():
         print_formatted_text(FormattedText(chat_log), style=style)
 
     print("codex-cli (type 'exit' to quit)")
+    debug_metrics = config.get("debug_metrics", False)
     with patch_stdout():
         while True:
             try:
@@ -131,6 +132,12 @@ def main():
                     chat_log.append(('', '[History cleared]'))
                     print_chat_log_bottom(chat_log, style)
                     continue
+                if user_input == '!debug':
+                    debug_metrics = not debug_metrics
+                    state = 'enabled' if debug_metrics else 'disabled'
+                    chat_log.append(('class:tool', f'[Debug metrics {state}]'))
+                    print_chat_log_bottom(chat_log, style)
+                    continue
                 if user_input.startswith('!'):
                     parts = user_input[1:].split(maxsplit=1)
                     toolname = parts[0]
@@ -144,25 +151,58 @@ def main():
                     continue
                 # Only add non-empty, non-system-prompt user messages
                 if user_input.strip() and user_input != system_prompt:
+                    import time
+                    CHAIN_LIMIT = config.get("chain_limit", 25)
                     history.add_user_message(user_input)
                     chat_log.append(('class:user', f'You: {user_input}\n'))
-                    response = ""
+                    # Step 1: Ask LLM to plan
+                    plan_prompt = (
+                        "Given the user's request, break it down into a numbered list of concrete steps (tools or actions) to achieve the goal. "
+                        f"Only plan up to {CHAIN_LIMIT} steps. Respond with the plan as a numbered list."
+                    )
+                    history.add_user_message(plan_prompt)
+                    t0 = time.time()
+                    plan_response = ""
                     for chunk in client.stream_chat(history.get_messages()):
-                        response += chunk
-                    # Remove tool call tags from assistant output
-                    clean_response = tool_pattern.sub("", response)
-                    chat_log.append(('class:assistant', f'Assistant: {clean_response.strip()}\n'))
-                    # Tool call detection
-                    match = tool_pattern.search(response)
-                    if match:
-                        toolname, toolarg = match.group(1), match.group(2).strip()
-                        if toolname in tools:
-                            tool_result = tools[toolname]['run'](toolarg)
-                            chat_log.append(('class:tool', tool_result))
-                        else:
-                            chat_log.append(('class:tool', f"Tool '{toolname}' not found."))
-                    assistant_reply = client.get_last_response()
-                    history.add_assistant_message(assistant_reply)
+                        plan_response += chunk
+                    t1 = time.time()
+                    chat_log.append(('class:assistant', f'[Plan]\n{plan_response.strip()}\n'))
+                    if debug_metrics:
+                        elapsed = t1 - t0
+                        chat_log.append(('class:tool', f'[DEBUG] Planning time: {elapsed:.2f}s'))
+                    # Step 2: Parse plan steps
+                    steps = re.findall(r'\d+\.\s*(.*)', plan_response)
+                    if not steps:
+                        chat_log.append(('class:tool', '[No plan steps found. Proceeding with normal chat.]'))
+                        print_chat_log_bottom(chat_log, style)
+                        continue
+                    # Step 3: Execute each step up to chain limit, buffer output but do not display
+                    chain_steps = 0
+                    t_chain_start = time.time()
+                    chain_history = []
+                    for i, step in enumerate(steps[:CHAIN_LIMIT]):
+                        history.add_user_message(f"Step: {step}")
+                        step_response = ""
+                        for chunk in client.stream_chat(history.get_messages()):
+                            step_response += chunk
+                        chain_history.append({"step": step, "response": step_response.strip()})
+                        history.add_assistant_message(step_response)
+                        chain_steps += 1
+                    t_chain_end = time.time()
+                    # After chain, call LLM to summarize the chain history for the original user request
+                    summary_prompt = (
+                        f"Summarize the following chain of steps and their results in a concise, user-focused way, geared toward answering the original user request: '{user_input}'.\n"
+                        "Steps and results:\n" +
+                        "\n".join([f"Step: {item['step']}\nResult: {item['response']}" for item in chain_history])
+                    )
+                    history.add_user_message(summary_prompt)
+                    summary_response = ""
+                    for chunk in client.stream_chat(history.get_messages()):
+                        summary_response += chunk
+                    chat_log.append(('class:assistant', summary_response.strip()))
+                    if debug_metrics:
+                        chat_log.append(('class:tool', f'[DEBUG] Chain steps: {chain_steps} | Chain time: {t_chain_end-t_chain_start:.2f}s'))
+                    chat_log.append(('class:tool', '\n[Chain complete. Returning to user input.]'))
                     print_chat_log_bottom(chat_log, style)
             except (KeyboardInterrupt, EOFError):
                 print("\nExiting.")
