@@ -1,5 +1,4 @@
 import requests
-import os
 
 class OpenAIClient:
     def __init__(self, config):
@@ -11,18 +10,18 @@ class OpenAIClient:
     def stream_chat(self, messages):
         headers = {
             "Authorization": f"Bearer {self.api_key}",
-            "Content-Type": "application/json"
+            "Content-Type": "application/json",
         }
         data = {
             "model": self.model,
             "messages": messages,
-            "stream": True
+            "stream": True,
         }
         with requests.post(self.api_url, headers=headers, json=data, stream=True) as resp:
             resp.raise_for_status()
             content = ""
             for line in resp.iter_lines():
-                if not line or not line.startswith(b'data: '):
+                if not line or not line.startswith(b"data: "):
                     continue
                 payload = line[6:]
                 if payload == b"[DONE]":

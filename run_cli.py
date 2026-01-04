@@ -1,8 +1,9 @@
-import sys
 import os
+import sys
+
 sys.path.insert(0, os.path.dirname(__file__))
 
-from llm_cli.cli import main
+from cli.main import main
 
 if __name__ == "__main__":
     main()
