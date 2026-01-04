@@ -1,7 +1,4 @@
 import argparse
-import glob
-import os
-import platform
 import re
 import shutil
 import time
@@ -18,14 +15,7 @@ from core.history import ConversationHistory
 from core.mcp import discover_mcp_tools, run_mcp_tool
 from core.tool_loader import load_tools
 from core.skills import list_skills, load_skill, save_skill
-
-
-def build_tools_prompt(tools):
-    lines = ["Available tools:"]
-    for name, tool in tools.items():
-        lines.append(f"- {name}: {tool['description']}")
-    lines.append("To call a tool, reply with <tool:name>args</tool>.")
-    return "\n".join(lines)
+from core.system_prompt import seed_history_with_system_prompts
 
 
 def _append_log(chat_log, style_name, message):
@@ -43,19 +33,6 @@ def _render_chat(chat_log, style):
     print_formatted_text(FormattedText(chat_log), style=style)
 
 
-def _load_agent_md():
-    candidates = [os.getcwd(), os.path.join(os.getcwd(), "cli")]
-    for directory in candidates:
-        for path in glob.glob(os.path.join(directory, "*.[mM][dD]")):
-            if os.path.basename(path).lower() == "agent.md":
-                try:
-                    with open(path, "r", encoding="utf-8") as handle:
-                        return handle.read()
-                except Exception:
-                    return None
-    return None
-
-
 def _list_tools_lines(tools):
     return [("", "Available tools:")] + [("class:tool", f"- {name}: {tool['description']}") for name, tool in tools.items()]
 
@@ -71,7 +48,7 @@ def _list_skills_lines():
     return lines
 
 
-def _run_skill(name, history, client, chat_log):
+def _run_skill(name, history, client, chat_log, debug_metrics):
     skill = load_skill(name)
     if not skill:
         _append_log(chat_log, "class:tool", f"Skill '{name}' not found.")
@@ -80,11 +57,11 @@ def _run_skill(name, history, client, chat_log):
     for index, step in enumerate(skill.get("steps", []), start=1):
         _append_log(chat_log, "class:tool", f"[Skill Step {index}] {step}")
         history.add_user_message(f"Skill step: {step}")
-        step_response = ""
-        for chunk in client.stream_chat(history.get_messages()):
-            step_response += chunk
+        step_response, elapsed = _collect_response(client, history)
         history.add_assistant_message(step_response)
         _append_log(chat_log, "class:assistant", step_response.strip())
+        if debug_metrics:
+            _append_log(chat_log, "class:tool", f"[DEBUG] Skill step time: {elapsed:.2f}s")
     _append_log(chat_log, "class:tool", "[Skill complete. Returning to user input.]")
 
 
@@ -96,6 +73,17 @@ def _save_skill(payload, chat_log):
         _append_log(chat_log, "class:tool", f"Skill '{name.strip()}' saved.")
     except Exception as exc:
         _append_log(chat_log, "class:tool", f"Failed to save skill: {exc}")
+
+
+def _collect_response(client, history, on_chunk=None):
+    start = time.time()
+    response = ""
+    for chunk in client.stream_chat(history.get_messages()):
+        response += chunk
+        if on_chunk:
+            on_chunk(chunk)
+    elapsed = time.time() - start
+    return response, elapsed
 
 
 def main(argv=None):
@@ -113,16 +101,7 @@ def main(argv=None):
             "run": lambda arguments, n=name: run_mcp_tool(n, arguments),
             "description": f"(MCP) {description}",
         }
-
-    os_message = f"You are running in a {platform.system()} environment. Use appropriate shell commands for this OS."
-    history.add_system_message(os_message)
-
-    agent_md = _load_agent_md()
-    if agent_md:
-        history.add_system_message(agent_md)
-
-    system_prompt = build_tools_prompt(tools)
-    history.add_system_message(system_prompt)
+    seed_history_with_system_prompts(history, tools)
 
     if args.exec_message:
         message = args.exec_message
@@ -136,9 +115,14 @@ def main(argv=None):
                 print(f"Tool '{toolname}' not found.")
             return
         history.add_user_message(message)
-        for chunk in client.stream_chat(history.get_messages()):
-            print(chunk, end="", flush=True)
+        response, elapsed = _collect_response(
+            client,
+            history,
+            on_chunk=lambda chunk: print(chunk, end="", flush=True),
+        )
         print()
+        if config.get("debug_metrics", False):
+            print(f"[DEBUG] Response time: {elapsed:.2f}s")
         return
 
     session = PromptSession()
@@ -171,7 +155,6 @@ def main(argv=None):
                     continue
                 if user_input == "!new":
                     history = ConversationHistory()
-                    history.add_system_message(os_message)
                     tools = load_tools()
                     mcp_tools = discover_mcp_tools()
                     for name, description in mcp_tools.items():
@@ -179,11 +162,7 @@ def main(argv=None):
                             "run": lambda arguments, n=name: run_mcp_tool(n, arguments),
                             "description": f"(MCP) {description}",
                         }
-                    agent_md = _load_agent_md()
-                    if agent_md:
-                        history.add_system_message(agent_md)
-                    system_prompt = build_tools_prompt(tools)
-                    history.add_system_message(system_prompt)
+                    seed_history_with_system_prompts(history, tools)
                     chat_log.clear()
                     chat_log.append(("", "[History cleared]"))
                     continue
@@ -193,7 +172,7 @@ def main(argv=None):
                     _append_log(chat_log, "class:tool", f"[Debug metrics {state}]")
                     continue
                 if user_input.startswith("!run "):
-                    _run_skill(user_input[5:].strip(), history, client, chat_log)
+                    _run_skill(user_input[5:].strip(), history, client, chat_log, debug_metrics)
                     continue
                 if user_input.startswith("!save_skill "):
                     _save_skill(user_input[len("!save_skill "):], chat_log)
@@ -217,9 +196,7 @@ def main(argv=None):
                     "Reply with 'plan' or 'respond'. Request: '" + user_input + "'"
                 )
                 history.add_user_message(router_prompt)
-                router_response = ""
-                for chunk in client.stream_chat(history.get_messages()):
-                    router_response += chunk
+                router_response, _ = _collect_response(client, history)
                 decision = router_response.strip().lower()
                 if history.memory[0] and history.memory[0][-1]["role"] == "user" and router_prompt in history.memory[0][-1]["content"]:
                     history.memory[0].pop()
@@ -230,13 +207,9 @@ def main(argv=None):
                         f"Only plan up to {chain_limit} steps. Respond with the plan as a numbered list."
                     )
                     history.add_user_message(plan_prompt)
-                    t0 = time.time()
-                    plan_response = ""
-                    for chunk in client.stream_chat(history.get_messages()):
-                        plan_response += chunk
-                    t1 = time.time()
+                    plan_response, plan_elapsed = _collect_response(client, history)
                     if debug_metrics:
-                        _append_log(chat_log, "class:tool", f"[DEBUG] Planning time: {t1 - t0:.2f}s")
+                        _append_log(chat_log, "class:tool", f"[DEBUG] Planning time: {plan_elapsed:.2f}s")
                     steps = re.findall(r"\d+\.\s*(.*)", plan_response)
                     if not steps:
                         _append_log(chat_log, "class:tool", "[No plan steps found. Proceeding with normal chat.]")
@@ -245,11 +218,11 @@ def main(argv=None):
                     t_chain_start = time.time()
                     for step in steps[:chain_limit]:
                         history.add_user_message(f"Step: {step}")
-                        step_response = ""
-                        for chunk in client.stream_chat(history.get_messages()):
-                            step_response += chunk
+                        step_response, step_elapsed = _collect_response(client, history)
                         history.add_assistant_message(step_response)
                         chain_history.append({"step": step, "response": step_response.strip()})
+                        if debug_metrics:
+                            _append_log(chat_log, "class:tool", f"[DEBUG] Step time: {step_elapsed:.2f}s")
                     t_chain_end = time.time()
                     summary_prompt = (
                         f"Provide a response that is appropriate based on the user's prompt: '{user_input}'.\n"
@@ -257,18 +230,17 @@ def main(argv=None):
                         "\n".join([f"Step: {entry['step']}\nResult: {entry['response']}" for entry in chain_history])
                     )
                     history.add_user_message(summary_prompt)
-                    summary_response = ""
-                    for chunk in client.stream_chat(history.get_messages()):
-                        summary_response += chunk
+                    summary_response, summary_elapsed = _collect_response(client, history)
                     _append_log(chat_log, "class:assistant", summary_response.strip())
                     if debug_metrics:
                         _append_log(chat_log, "class:tool", f"[DEBUG] Chain steps: {len(chain_history)} | Chain time: {t_chain_end - t_chain_start:.2f}s")
+                        _append_log(chat_log, "class:tool", f"[DEBUG] Summary time: {summary_elapsed:.2f}s")
                     _append_log(chat_log, "class:tool", "\n[Chain complete. Returning to user input.]")
                 else:
-                    direct_response = ""
-                    for chunk in client.stream_chat(history.get_messages()):
-                        direct_response += chunk
+                    direct_response, direct_elapsed = _collect_response(client, history)
                     _append_log(chat_log, "class:assistant", direct_response.strip())
+                    if debug_metrics:
+                        _append_log(chat_log, "class:tool", f"[DEBUG] Response time: {direct_elapsed:.2f}s")
             except (KeyboardInterrupt, EOFError):
                 print("\nExiting.")
                 break
