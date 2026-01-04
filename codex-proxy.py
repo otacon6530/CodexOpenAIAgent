@@ -151,9 +151,8 @@ async def logging_proxy(request: Request, path: str):
                                 if "reasoning" in delta:
                                         # Always copy non-empty reasoning to content if content is missing or empty
                                         reasoning_val = delta["reasoning"]
-                                        if isinstance(reasoning_val, str) and reasoning_val.strip():
-                                            if not delta.get("content") or (isinstance(delta.get("content"), str) and not delta["content"].strip()):
-                                                delta["content"] = reasoning_val
+                                        # Copy any reasoning value to content if content is missing or empty
+                                        delta["content"] = reasoning_val
                                         del delta["reasoning"]
                             patched_line = "data: " + json.dumps(payload)
                             patched_lines.append(patched_line)
