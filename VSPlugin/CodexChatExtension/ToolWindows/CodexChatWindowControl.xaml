@@ -1,0 +1,55 @@
+<UserControl x:Class="CodexChatExtension.ToolWindows.CodexChatWindowControl"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             mc:Ignorable="d"
+             d:DesignHeight="450"
+             d:DesignWidth="800"
+             Unloaded="CodexChatWindowControl_OnUnloaded">
+    <Grid Margin="8">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="*" />
+        </Grid.ColumnDefinitions>
+
+        <StackPanel Orientation="Horizontal" Grid.Row="0" Margin="0,0,0,8" VerticalAlignment="Top" >
+            <TextBlock Text="Workspace:" VerticalAlignment="Center" Margin="0,0,4,0"/>
+            <TextBox x:Name="WorkspacePath" Width="280" Margin="0,0,8,0"/>
+            <TextBlock Text="Python:" VerticalAlignment="Center" Margin="0,0,4,0"/>
+            <TextBox x:Name="PythonPath" Width="160" Margin="0,0,8,0"/>
+            <Button x:Name="ConnectButton" Content="Connect" Width="80" Click="ConnectButton_OnClick"/>
+        </StackPanel>
+
+        <StackPanel Orientation="Horizontal" Grid.Row="1" Margin="0,0,0,8">
+            <Button x:Name="DebugToggleButton" Content="Toggle Debug" Width="120" Margin="0,0,8,0" Click="DebugToggleButton_OnClick" IsEnabled="False"/>
+            <Button x:Name="ToolsButton" Content="List Tools" Width="120" Margin="0,0,8,0" Click="ToolsButton_OnClick" IsEnabled="False"/>
+            <Button x:Name="NewSessionButton" Content="New Session" Width="120" Click="NewSessionButton_OnClick" IsEnabled="False"/>
+        </StackPanel>
+
+        <Grid Grid.Row="2" Margin="0,0,0,8">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="3*"/>
+                <ColumnDefinition Width="2*"/>
+            </Grid.ColumnDefinitions>
+            <GroupBox Header="Conversation" Grid.Column="0" Margin="0,0,8,0">
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <TextBox x:Name="ChatLog" TextWrapping="Wrap" IsReadOnly="True" AcceptsReturn="True" VerticalScrollBarVisibility="Auto" BorderThickness="0"/>
+                </ScrollViewer>
+            </GroupBox>
+            <GroupBox Header="Debug" Grid.Column="1">
+                <ListBox x:Name="DebugList" />
+            </GroupBox>
+        </Grid>
+
+        <DockPanel Grid.Row="3">
+            <TextBox x:Name="MessageInput" DockPanel.Dock="Left" Margin="0,0,8,0" Height="28" VerticalContentAlignment="Center"/>
+            <Button x:Name="SendButton" Content="Send" Width="80" Click="SendButton_OnClick" IsEnabled="False"/>
+        </DockPanel>
+    </Grid>
+</UserControl>

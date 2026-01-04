@@ -1,0 +1,126 @@
+body {
+    margin: 0;
+    padding: 0;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    background: var(--vscode-editor-background);
+    color: var(--vscode-editor-foreground);
+}
+
+.container {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+}
+
+.toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.5rem 0.75rem;
+    border-bottom: 1px solid var(--vscode-editorGroup-border);
+    background: var(--vscode-sideBar-background);
+}
+
+.status {
+    font-size: 0.9rem;
+}
+
+.actions button {
+    margin-left: 0.5rem;
+}
+
+.actions button,
+#sendButton {
+    background: var(--vscode-button-background);
+    color: var(--vscode-button-foreground);
+    border: none;
+    padding: 0.35rem 0.75rem;
+    border-radius: 3px;
+    cursor: pointer;
+}
+
+.actions button:disabled,
+#sendButton:disabled {
+    opacity: 0.6;
+    cursor: default;
+}
+
+.content {
+    display: flex;
+    flex: 1;
+    overflow: hidden;
+}
+
+.chat {
+    flex: 3;
+    padding: 0.75rem;
+    overflow-y: auto;
+    border-right: 1px solid var(--vscode-editorGroup-border);
+}
+
+.chat-entry {
+    margin-bottom: 0.75rem;
+}
+
+.chat-entry.user {
+    color: var(--vscode-textLink-foreground);
+}
+
+.chat-entry.assistant {
+    color: var(--vscode-editor-foreground);
+}
+
+.chat-entry.system {
+    color: var(--vscode-editorCodeLens-foreground);
+    font-style: italic;
+}
+
+.chat-entry.error {
+    color: var(--vscode-errorForeground);
+}
+
+.debug {
+    flex: 2;
+    padding: 0.75rem;
+    overflow-y: auto;
+    background: var(--vscode-editor-inactiveSelectionBackground);
+}
+
+.debug h2 {
+    margin-top: 0;
+}
+
+.debug ul {
+    list-style: none;
+    padding-left: 0;
+    margin: 0;
+    font-size: 0.85rem;
+}
+
+.debug li + li {
+    margin-top: 0.35rem;
+}
+
+.composer {
+    display: flex;
+    padding: 0.75rem;
+    border-top: 1px solid var(--vscode-editorGroup-border);
+    background: var(--vscode-sideBar-background);
+}
+
+#messageInput {
+    flex: 1;
+    padding: 0.5rem;
+    border: 1px solid var(--vscode-editorGroup-border);
+    border-radius: 3px;
+    background: var(--vscode-input-background);
+    color: var(--vscode-input-foreground);
+}
+
+#messageInput:focus {
+    outline: 1px solid var(--vscode-focusBorder);
+}
+
+#sendButton {
+    margin-left: 0.75rem;
+}

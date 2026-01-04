@@ -1,0 +1,48 @@
+{
+  "name": "codex-chat",
+  "displayName": "Codex Chat",
+  "description": "Chat with the Codex agent directly inside Visual Studio Code using the project's core tools.",
+  "version": "0.1.0",
+  "publisher": "codex",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onCommand:codexChat.openChat"
+  ],
+  "main": "./src/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "codexChat.openChat",
+        "title": "Codex Chat: Open",
+        "category": "Codex"
+      }
+    ],
+    "configuration": {
+      "title": "Codex Chat",
+      "properties": {
+        "codexChat.workspacePath": {
+          "type": "string",
+          "default": "",
+          "description": "Workspace path used as the current working directory when launching the Codex Python process. Defaults to the first VS Code workspace folder."
+        },
+        "codexChat.pythonPath": {
+          "type": "string",
+          "default": "python",
+          "description": "Python executable to use for launching the Codex chat backend."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "package": "vsce package"
+  },
+  "devDependencies": {
+    "vsce": "^2.15.0"
+  },
+  "dependencies": {}
+}
