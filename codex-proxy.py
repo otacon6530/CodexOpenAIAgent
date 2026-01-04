@@ -149,7 +149,10 @@ async def logging_proxy(request: Request, path: str):
                             for choice in choices:
                                 delta = choice.get("delta", {})
                                 if "reasoning" in delta:
-                                    del delta["reasoning"]
+                                        # Move reasoning to content if content is empty
+                                        if not delta.get("content") and delta["reasoning"]:
+                                            delta["content"] = delta["reasoning"]
+                                        del delta["reasoning"]
                             patched_line = "data: " + json.dumps(payload)
                             patched_lines.append(patched_line)
                         except Exception:
