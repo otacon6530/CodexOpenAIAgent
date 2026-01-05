@@ -87,6 +87,7 @@ class PythonBridge {
         if (!trimmed) {
             return;
         }
+        console.log('[Codex Chat] Backend -> Extension:', trimmed);
         try {
             const payload = JSON.parse(trimmed);
             this.messageEmitter.fire(payload);

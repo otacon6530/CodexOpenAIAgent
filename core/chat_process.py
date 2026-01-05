@@ -12,6 +12,7 @@ from core.system_prompt import seed_history_with_system_prompts
 from core.tool_loader import load_tools
 
 TOOL_PATTERN = re.compile(r"<tool:([a-zA-Z0-9_.\-]+)>(.*?)</tool>", re.DOTALL)
+_PENDING_MESSAGES = []
 
 
 def _load_all_tools():
@@ -118,8 +119,48 @@ def _process_tool_calls(response_text, history, client, tools, config, debug_lin
 
 
 def _send(payload):
+    try:
+        debug_message = json.dumps(payload)
+    except Exception:
+        debug_message = str(payload)
+    print(f"[DEBUG] Sending to extension: {debug_message}", file=sys.stderr)
     sys.stdout.write(json.dumps(payload) + "\n")
     sys.stdout.flush()
+
+
+def _read_raw_message():
+    while True:
+        line = sys.stdin.readline()
+        if not line:
+            return None
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            return json.loads(line)
+        except json.JSONDecodeError:
+            _send({"type": "error", "content": "Invalid JSON input."})
+
+
+def _pop_buffered_message(expected_type=None, expected_id=None):
+    if not _PENDING_MESSAGES:
+        return None
+    if expected_type is None:
+        return _PENDING_MESSAGES.pop(0)
+    for index, message in enumerate(_PENDING_MESSAGES):
+        if message.get("type") != expected_type:
+            continue
+        if expected_id is not None and message.get("id") != expected_id:
+            continue
+        return _PENDING_MESSAGES.pop(index)
+    return None
+
+
+def _next_message():
+    buffered = _pop_buffered_message()
+    if buffered is not None:
+        return buffered
+    return _read_raw_message()
 
 
 def _wait_for_message(expected_type, expected_id=None, timeout=None):
@@ -128,21 +169,19 @@ def _wait_for_message(expected_type, expected_id=None, timeout=None):
 
     deadline = time.time() + timeout if timeout else None
 
+    buffered = _pop_buffered_message(expected_type, expected_id)
+    if buffered is not None:
+        return buffered
+
     while True:
         if deadline is not None and time.time() > deadline:
             return None
-        line = sys.stdin.readline()
-        if not line:
+        message = _read_raw_message()
+        if message is None:
             return None
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            message = json.loads(line)
-        except json.JSONDecodeError:
-            continue
         if message.get("type") == expected_type and (expected_id is None or message.get("id") == expected_id):
             return message
+        _PENDING_MESSAGES.append(message)
 
 
 def _handle_skill(skill_name, history, client, debug_metrics, debug_lines):
@@ -197,13 +236,78 @@ def _inject_editor_tools(tools):
     def as_json(result):
         return json.dumps(result, indent=2)
 
+    def format_diagnostics(result):
+        if not isinstance(result, dict):
+            return as_json(result)
+
+        summary = result.get("summary", {})
+        total = result.get("total")
+        returned = result.get("returned")
+        truncated = result.get("truncated")
+
+        lines = []
+        lines.append("Diagnostics Summary:")
+        lines.append(
+            f"  Errors: {summary.get('error', 0)} | Warnings: {summary.get('warning', 0)} | "
+            f"Info: {summary.get('information', 0)} | Hints: {summary.get('hint', 0)}"
+        )
+        lines.append(f"  Returned: {returned} of {total}{' (truncated)' if truncated else ''}")
+
+        items = result.get("items") or []
+        if not items:
+            lines.append("No diagnostics reported.")
+            return "\n".join(lines)
+
+        severity_order = ["error", "warning", "information", "hint"]
+        per_file_limit = 5
+        lines.append("\nFiles:")
+        for entry in items:
+            file_path = entry.get("uri") or entry.get("file") or "(unknown file)"
+            diagnostics = entry.get("diagnostics") or []
+            if not diagnostics:
+                continue
+
+            lines.append(f"  {file_path}")
+            # Sort diagnostics by severity order then range start line
+            def sort_key(diag):
+                severity = diag.get("severity", "hint")
+                try:
+                    severity_index = severity_order.index(severity)
+                except ValueError:
+                    severity_index = len(severity_order)
+                rng = diag.get("range", {})
+                start = rng.get("start", {})
+                return (severity_index, start.get("line", 0), start.get("character", 0))
+
+            sorted_diags = sorted(diagnostics, key=sort_key)
+            for diag in sorted_diags[:per_file_limit]:
+                severity = diag.get("severity", "unknown").capitalize()
+                rng = diag.get("range", {})
+                start = rng.get("start", {})
+                message = diag.get("message", "(no message)")
+                code = diag.get("code")
+                source = diag.get("source")
+                location = f"L{start.get('line', '?')}:{start.get('character', '?')}"
+                extra = []
+                if source:
+                    extra.append(str(source))
+                if code:
+                    extra.append(str(code))
+                extra_text = f" ({', '.join(extra)})" if extra else ""
+                lines.append(f"    - {severity} {location}{extra_text}: {message}")
+
+            if len(sorted_diags) > per_file_limit:
+                lines.append(f"    … {len(sorted_diags) - per_file_limit} more entries")
+
+        return "\n".join(lines)
+
     def diagnostics_tool(arguments):
         payload = _parse_editor_payload(arguments)
         try:
             result = _request_editor_query("diagnostics", payload or None)
         except Exception as exc:
             return f"Diagnostics query failed: {exc}"
-        return as_json(result)
+        return format_diagnostics(result)
 
     def open_editors_tool(arguments):
         try:
@@ -259,17 +363,9 @@ def main():
     _send({"type": "ready", "debug": debug_metrics})
 
     while True:
-        line = sys.stdin.readline()
-        if not line:
+        request = _next_message()
+        if request is None:
             break
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            request = json.loads(line)
-        except json.JSONDecodeError:
-            _send({"type": "error", "content": "Invalid JSON input."})
-            continue
 
         action = request.get("type")
         if action in {"editor_query_response", "shell_approval_response"}:

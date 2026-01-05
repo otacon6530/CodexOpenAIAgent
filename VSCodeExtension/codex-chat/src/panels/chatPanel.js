@@ -171,12 +171,14 @@ class ChatPanel {
 
         switch (message.type) {
                 case 'editor_query':
+                console.log('[Codex Chat] Received editor_query request', message);
                     this.handleEditorQuery(message).catch((error) => {
                         const errMsg = error && error.message ? error.message : String(error);
                         if (this.bridge && this.bridge.isRunning) {
                             this.bridge.send({ type: 'editor_query_response', id: message.id, error: errMsg }).catch(() => undefined);
                         }
                         this.postToWebview({ type: 'status', level: 'error', message: `Failed to service editor query: ${errMsg}` });
+                    console.error('[Codex Chat] editor_query failed', errMsg);
                     });
                     break;
             case 'send':
@@ -275,6 +277,16 @@ class ChatPanel {
                     id: message.id
                 });
                 break;
+            case 'editor_query':
+                console.log('[Codex Chat] handleBridgeMessage received editor_query', message);
+                this.handleEditorQuery(message).catch((error) => {
+                    const errMsg = error && error.message ? error.message : String(error);
+                    console.error('[Codex Chat] Failed to service editor_query in handleBridgeMessage', errMsg);
+                    if (this.bridge && this.bridge.isRunning) {
+                        this.bridge.send({ type: 'editor_query_response', id: message.id, error: errMsg }).catch(() => undefined);
+                    }
+                });
+                break;
             case 'ready':
                 this.setControlsEnabled(true);
                 this.postToWebview({ type: 'status', level: 'info', message: 'Backend ready. Say hello!' });
@@ -350,6 +362,7 @@ class ChatPanel {
         }
 
         await this.bridge.send({ type: 'editor_query_response', id: message.id, result });
+        console.log('[Codex Chat] Sent editor_query_response', message.id);
     }
 
     collectDiagnostics(payload) {
@@ -411,7 +424,7 @@ class ChatPanel {
             }
         }
 
-        return {
+        const response = {
             summary: counts,
             returned: collected,
             total,
@@ -419,6 +432,8 @@ class ChatPanel {
             items: entries,
             limit,
         };
+        console.log('[Codex Chat] collectDiagnostics result', response.summary, `returned=${response.returned}`, `total=${response.total}`);
+        return response;
     }
 
     collectOpenEditors() {
