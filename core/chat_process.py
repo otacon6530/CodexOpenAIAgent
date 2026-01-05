@@ -63,6 +63,8 @@ def _process_tool_calls(response_text, history, client, tools, config, debug_lin
             return False, False
         return response.get("approved", False), response.get("approve_all", False)
 
+    llm_summaries = []
+    first_tool_output = None
     while True:
         history.add_assistant_message(text)
         matches = list(TOOL_PATTERN.finditer(text))
@@ -96,7 +98,9 @@ def _process_tool_calls(response_text, history, client, tools, config, debug_lin
             if tool_name in tools:
                 try:
                     output = tools[tool_name]["run"](tool_args)
-                    message = f"[Tool {tool_name}] {output if output else '(No output)'}"
+                    message = output if output else '(No output)'
+                    if first_tool_output is None:
+                        first_tool_output = message
                 except Exception as exc:
                     message = f"[Tool {tool_name}] Error: {exc}"
             else:
@@ -110,12 +114,16 @@ def _process_tool_calls(response_text, history, client, tools, config, debug_lin
         # Prompt the LLM to summarize/explain the tool output for the user
         history.add_user_message("Please summarize or explain the result of the previous tool call for the user.")
         followup_response, followup_elapsed = _collect_response(client, history)
+        llm_summaries.append(followup_response.strip())
         text = followup_response.strip()
         if debug_metrics:
             debug_lines.append(f"[DEBUG] Tool follow-up time: {followup_elapsed:.2f}s")
 
     cleaned = TOOL_PATTERN.sub('', text)
-    return cleaned, tool_messages
+    # Prioritize tool output as main message, append LLM summary as extras
+    main_message = first_tool_output if first_tool_output is not None else cleaned
+    extras = tool_messages + llm_summaries
+    return main_message, extras
 
 
 def _send(payload):

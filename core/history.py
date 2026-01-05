@@ -36,9 +36,14 @@ class ConversationHistory:
             ),
         }
 
-    def get_messages(self):
+    def get_messages(self, recent_count=None):
+        # Prioritize most recent messages, optionally include summaries
         result = []
+        # Add summaries from higher levels first
         for lvl in range(self.levels - 1, 0, -1):
             result.extend(self.memory[lvl])
-        result.extend(self.memory[0])
-        return result[-(self.chunk_size * self.levels):]
+        # Add most recent messages from base level
+        if recent_count is None:
+            recent_count = self.chunk_size * self.levels
+        result.extend(self.memory[0][-recent_count:])
+        return result[-recent_count:]
