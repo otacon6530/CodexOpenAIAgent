@@ -46,6 +46,7 @@ def _process_tool_calls(response_text, history, client, tools, config, debug_lin
     text = response_text.strip()
     iterations = 0
 
+
     while True:
         history.add_assistant_message(text)
         matches = list(TOOL_PATTERN.finditer(text))
@@ -73,6 +74,8 @@ def _process_tool_calls(response_text, history, client, tools, config, debug_lin
                 preview = tool_args[:40] + ("…" if len(tool_args) > 40 else "")
                 debug_lines.append(f"[DEBUG] Tool {tool_name} invoked with args: {preview}")
 
+        # Prompt the LLM to summarize/explain the tool output for the user
+        history.add_user_message("Please summarize or explain the result of the previous tool call for the user.")
         followup_response, followup_elapsed = _collect_response(client, history)
         text = followup_response.strip()
         if debug_metrics:
@@ -204,17 +207,21 @@ def main():
             _send({"type": "assistant", "content": str(result), "debug": debug_lines})
             continue
 
+        # Add user message, but do NOT persist router prompt or its response in history
         history.add_user_message(user_input)
 
+        # Temporarily add router prompt for routing decision
         router_prompt = (
             "Does the following user request require a multi-step plan (tools/actions) or can it be answered directly? "
             "Reply with 'plan' or 'respond'. Request: '" + user_input + "'"
         )
+        # Save current history state
+        orig_history = [list(block) for block in history.memory]
         history.add_user_message(router_prompt)
         router_response, _ = _collect_response(client, history)
         decision = router_response.strip().lower()
-        if history.memory[0] and history.memory[0][-1]["role"] == "user" and router_prompt in history.memory[0][-1]["content"]:
-            history.memory[0].pop()
+        # Restore history to before router prompt
+        history.memory = orig_history
 
         if "plan" in decision:
             plan_prompt = (
