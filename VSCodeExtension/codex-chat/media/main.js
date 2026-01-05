@@ -6,8 +6,6 @@
     const statusEl = document.getElementById('status');
     const spinnerEl = document.getElementById('spinner');
     const chatLog = document.getElementById('chatLog');
-    const debugList = document.getElementById('debugList');
-    const debugSection = document.getElementById('debugSection');
     const messageInput = document.getElementById('messageInput');
     const sendButton = document.getElementById('sendButton');
     const toggleDebugButton = document.getElementById('toggleDebug');
@@ -75,14 +73,6 @@
         }
     }
 
-    function addDebugLines(lines) {
-        lines.forEach((line) => {
-            const item = document.createElement('li');
-            item.textContent = line;
-            debugList.appendChild(item);
-        });
-        debugList.parentElement.scrollTop = debugList.parentElement.scrollHeight;
-    }
 
     function setStatus(level, message) {
         statusEl.textContent = message;
@@ -100,22 +90,6 @@
         }
     }
 
-    function setDebugVisibility(visible) {
-        if (!debugSection) {
-            return;
-        }
-        if (visible) {
-            debugSection.style.display = '';
-            debugSection.removeAttribute('aria-hidden');
-            chatLog.style.borderRight = '';
-        } else {
-            debugSection.style.display = 'none';
-            debugSection.setAttribute('aria-hidden', 'true');
-            chatLog.style.borderRight = 'none';
-        }
-    }
-
-    setDebugVisibility(false);
 
     window.addEventListener('message', (event) => {
         const message = event.data;

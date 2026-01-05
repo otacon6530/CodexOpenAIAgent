@@ -102,10 +102,6 @@ class ChatPanel {
         </header>
         <main class="content">
             <section class="chat" id="chatLog"></section>
-            <section class="debug" id="debugSection">
-                <h2>Debug</h2>
-                <ul id="debugList"></ul>
-            </section>
         </main>
         <footer class="composer">
             <input type="text" id="messageInput" placeholder="Message the Codex agent" />
@@ -240,7 +236,9 @@ class ChatPanel {
         }
 
         if (Array.isArray(message.debug) && message.debug.length > 0) {
-            this.postToWebview({ type: 'debug-lines', lines: message.debug });
+            message.debug.forEach((line) => {
+                this.postToWebview({ type: 'system', message: line });
+            });
         }
 
         if (Array.isArray(message.extras) && message.extras.length > 0) {
