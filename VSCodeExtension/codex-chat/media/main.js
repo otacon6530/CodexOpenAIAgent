@@ -243,17 +243,37 @@
         return html.join('');
     }
 
+    let systemGroup = null;
     function appendEntry(kind, text) {
-        const entry = document.createElement('div');
-        entry.className = `chat-entry ${kind}`;
         if (kind === 'system') {
+            // Group consecutive system messages
+            if (!systemGroup || systemGroup._closed) {
+                systemGroup = document.createElement('div');
+                systemGroup.className = 'system-group collapsed';
+                // Group preview
+                const groupPreview = document.createElement('div');
+                groupPreview.className = 'system-group-preview';
+                groupPreview.textContent = '[System] (multiple messages)';
+                groupPreview.onclick = () => {
+                    const collapsed = systemGroup.classList.toggle('collapsed');
+                    groupPreview.classList.toggle('expanded', !collapsed);
+                    Array.from(systemGroup.querySelectorAll('.system-message-wrapper')).forEach(w => {
+                        w.style.display = collapsed ? 'none' : '';
+                    });
+                };
+                systemGroup.appendChild(groupPreview);
+                systemGroup._closed = false;
+                chatLog.appendChild(systemGroup);
+            }
+            // Individual system message
+            const wrapper = document.createElement('div');
+            wrapper.className = 'system-message-wrapper';
             // Collapsible system message
-            entry.classList.add('collapsible-system');
-            // Preview: first line or first 60 chars
+            wrapper.classList.add('collapsible-system');
             const previewText = (text || '').split('\n')[0].slice(0, 60) + ((text || '').length > 60 ? '...' : '');
             const preview = document.createElement('div');
             preview.className = 'system-message-preview';
-            preview.innerHTML = `<span class="chat-label">${labelForKind(kind)}</span> ${escapeHtml(previewText)}`;
+            preview.innerHTML = `<span class=\"chat-label\">${labelForKind(kind)}</span> ${escapeHtml(previewText)}`;
             const full = document.createElement('div');
             full.className = 'system-message-full';
             full.innerHTML = renderMarkdown(text || '');
@@ -263,15 +283,28 @@
                 full.style.display = collapsed ? 'block' : 'none';
                 preview.classList.toggle('expanded', collapsed);
             };
-            entry.appendChild(preview);
-            entry.appendChild(full);
-        } else if (kind === 'assistant') {
-            entry.innerHTML = `<span class="chat-label">${labelForKind(kind)}</span> ${renderMarkdown(text || '')}`;
+            wrapper.appendChild(preview);
+            wrapper.appendChild(full);
+            if (systemGroup.classList.contains('collapsed')) {
+                wrapper.style.display = 'none';
+            }
+            systemGroup.appendChild(wrapper);
+            chatLog.scrollTop = chatLog.scrollHeight;
         } else {
-            entry.innerHTML = `<span class="chat-label">${labelForKind(kind)}</span> ${formatInline(text || '').replace(/\n/g, '<br>')}`;
+            // Close any open system group
+            if (systemGroup && !systemGroup._closed) {
+                systemGroup._closed = true;
+            }
+            const entry = document.createElement('div');
+            entry.className = `chat-entry ${kind}`;
+            if (kind === 'assistant') {
+                entry.innerHTML = `<span class=\"chat-label\">${labelForKind(kind)}</span> ${renderMarkdown(text || '')}`;
+            } else {
+                entry.innerHTML = `<span class=\"chat-label\">${labelForKind(kind)}</span> ${formatInline(text || '').replace(/\n/g, '<br>')}`;
+            }
+            chatLog.appendChild(entry);
+            chatLog.scrollTop = chatLog.scrollHeight;
         }
-        chatLog.appendChild(entry);
-        chatLog.scrollTop = chatLog.scrollHeight;
     }
 
     function labelForKind(kind) {
