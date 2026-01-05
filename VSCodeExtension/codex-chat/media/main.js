@@ -243,27 +243,32 @@
         return html.join('');
     }
 
-    let systemGroup = null;
+    // let systemGroup = null; // Already declared at the top
+    let lastSystemGroup = null;
     function appendEntry(kind, text) {
         if (kind === 'system') {
             // Group consecutive system messages
-            if (!systemGroup || systemGroup._closed) {
-                systemGroup = document.createElement('div');
-                systemGroup.className = 'system-group collapsed';
+            let group = lastSystemGroup;
+            // If no open group or last message was not system, start a new group
+            if (!group || group._closed || group._lastNonSystem) {
+                group = document.createElement('div');
+                group.className = 'system-group collapsed';
                 // Group preview
                 const groupPreview = document.createElement('div');
                 groupPreview.className = 'system-group-preview';
                 groupPreview.textContent = '[System] (multiple messages)';
-                groupPreview.onclick = () => {
-                    const collapsed = systemGroup.classList.toggle('collapsed');
+                groupPreview.onclick = function () {
+                    const collapsed = group.classList.toggle('collapsed');
                     groupPreview.classList.toggle('expanded', !collapsed);
-                    Array.from(systemGroup.querySelectorAll('.system-message-wrapper')).forEach(w => {
+                    Array.from(group.querySelectorAll('.system-message-wrapper')).forEach(w => {
                         w.style.display = collapsed ? 'none' : '';
                     });
                 };
-                systemGroup.appendChild(groupPreview);
-                systemGroup._closed = false;
-                chatLog.appendChild(systemGroup);
+                group.appendChild(groupPreview);
+                group._closed = false;
+                group._lastNonSystem = false;
+                chatLog.appendChild(group);
+                lastSystemGroup = group;
             }
             // Individual system message
             const wrapper = document.createElement('div');
@@ -278,22 +283,24 @@
             full.className = 'system-message-full';
             full.innerHTML = renderMarkdown(text || '');
             full.style.display = 'none';
-            preview.onclick = () => {
+            preview.onclick = function () {
                 const collapsed = full.style.display === 'none';
                 full.style.display = collapsed ? 'block' : 'none';
                 preview.classList.toggle('expanded', collapsed);
             };
             wrapper.appendChild(preview);
             wrapper.appendChild(full);
-            if (systemGroup.classList.contains('collapsed')) {
+            if (group.classList.contains('collapsed')) {
                 wrapper.style.display = 'none';
             }
-            systemGroup.appendChild(wrapper);
+            group.appendChild(wrapper);
+            group._lastNonSystem = false;
             chatLog.scrollTop = chatLog.scrollHeight;
         } else {
-            // Close any open system group
-            if (systemGroup && !systemGroup._closed) {
-                systemGroup._closed = true;
+            // Mark last group as closed to start a new one for next system message
+            if (lastSystemGroup && !lastSystemGroup._closed) {
+                lastSystemGroup._closed = true;
+                lastSystemGroup._lastNonSystem = true;
             }
             const entry = document.createElement('div');
             entry.className = `chat-entry ${kind}`;
