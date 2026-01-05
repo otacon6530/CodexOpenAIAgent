@@ -3,13 +3,18 @@ import subprocess
 import os
 import platform
 
-if os.name == 'nt':
+os_type = platform.system()
+if os_type == 'Windows':
     shell_desc = (
-        'Run a shell command and return its output. Example: "dir" to list files, "type file.txt" to show a file.'
+        'Run a shell command and return its output. OS: Windows. Example: "dir" to list files, "type file.txt" to show a file.'
     )
+elif os_type == 'Darwin':
+    shell_desc = (
+        'Run a shell command and return its output. OS: macOS. Example: "ls" to list files, "cat file.txt" to show a file.'
+    )   
 else:
     shell_desc = (
-        'Run a shell command and return its output. Example: "ls" to list files, "cat file.txt" to show a file.'
+        'Run a shell command and return its output. OS: Linux. Example: "ls" to list files, "cat file.txt" to show a file.'
     )
 
 metadata = {
