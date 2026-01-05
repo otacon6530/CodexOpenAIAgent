@@ -65,10 +65,35 @@
     const reconnectButton = document.getElementById('reconnect');
 
     sendButton.addEventListener('click', onSend);
+    // Message history for up/down arrow navigation
+    const messageHistory = [];
+    let historyIndex = -1;
     messageInput.addEventListener('keydown', (event) => {
         if (event.key === 'Enter' && !event.shiftKey) {
             event.preventDefault();
             onSend();
+        } else if (event.key === 'ArrowUp' && !event.shiftKey) {
+            if (messageHistory.length === 0) return;
+            if (historyIndex === -1) {
+                historyIndex = messageHistory.length - 1;
+            } else if (historyIndex > 0) {
+                historyIndex--;
+            }
+            messageInput.value = messageHistory[historyIndex] || '';
+            event.preventDefault();
+        } else if (event.key === 'ArrowDown' && !event.shiftKey) {
+            if (messageHistory.length === 0) return;
+            if (historyIndex === -1) return;
+            if (historyIndex < messageHistory.length - 1) {
+                historyIndex++;
+                messageInput.value = messageHistory[historyIndex] || '';
+            } else {
+                historyIndex = -1;
+                messageInput.value = '';
+            }
+            event.preventDefault();
+        } else if (!event.ctrlKey && !event.metaKey && !event.altKey) {
+            historyIndex = -1;
         }
     });
     toggleDebugButton.addEventListener('click', () => vscode.postMessage({ type: 'toggleDebug' }));
@@ -90,6 +115,10 @@
         showSpinner(true);
         setSendEnabled(false);
         vscode.postMessage({ type: 'send', content: text });
+        // Store in history, max 10
+        messageHistory.push(text);
+        if (messageHistory.length > 10) messageHistory.shift();
+        historyIndex = -1;
         messageInput.value = '';
     }
 
