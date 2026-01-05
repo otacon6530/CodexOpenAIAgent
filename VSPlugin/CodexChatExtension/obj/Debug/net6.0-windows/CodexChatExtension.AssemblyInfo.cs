@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("CodexChatExtension")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+2131c11b65629c9515e85cccd84c63e13549d708")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+60fa43c8083b377b4f77e7ae42f4c2cec4db0bb0")]
 [assembly: System.Reflection.AssemblyProductAttribute("CodexChatExtension")]
 [assembly: System.Reflection.AssemblyTitleAttribute("CodexChatExtension")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

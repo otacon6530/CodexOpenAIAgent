@@ -76,6 +76,7 @@ class ChatPanel {
         const webview = this.panel.webview;
         const scriptUri = webview.asWebviewUri(vscode.Uri.joinPath(this.extensionUri, 'media', 'main.js'));
         const styleUri = webview.asWebviewUri(vscode.Uri.joinPath(this.extensionUri, 'media', 'styles.css'));
+        const markedUri = webview.asWebviewUri(vscode.Uri.joinPath(this.extensionUri, 'media', 'marked.min.js'));
         const nonce = getNonce();
 
         webview.html = `<!DOCTYPE html>
@@ -111,6 +112,7 @@ class ChatPanel {
             <button id="sendButton" disabled>Send</button>
         </footer>
     </div>
+    <script nonce="${nonce}" src="${markedUri}"></script>
     <script nonce="${nonce}" src="${scriptUri}"></script>
 </body>
 </html>`;

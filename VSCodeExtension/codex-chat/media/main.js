@@ -48,7 +48,14 @@
     function appendEntry(kind, text) {
         const entry = document.createElement('div');
         entry.className = `chat-entry ${kind}`;
-        entry.textContent = `${labelForKind(kind)} ${text}`;
+        let html = '';
+        if (kind === 'assistant' || kind === 'system') {
+            // Render markdown for assistant/system
+            html = `<span class="chat-label">${labelForKind(kind)}</span> ` + (window.marked ? marked.parse(text) : text.replace(/\n/g, '<br>'));
+        } else {
+            html = `<span class="chat-label">${labelForKind(kind)}</span> ` + text.replace(/\n/g, '<br>');
+        }
+        entry.innerHTML = html;
         chatLog.appendChild(entry);
         chatLog.scrollTop = chatLog.scrollHeight;
     }
