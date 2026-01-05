@@ -25,6 +25,11 @@
     newSessionButton.addEventListener('click', () => vscode.postMessage({ type: 'newSession' }));
     reconnectButton.addEventListener('click', () => vscode.postMessage({ type: 'reconnect' }));
 
+    function setSendEnabled(enabled) {
+        sendButton.disabled = !enabled;
+        messageInput.disabled = !enabled;
+    }
+
     function onSend() {
         const text = messageInput.value.trim();
         if (!text) {
@@ -32,9 +37,9 @@
         }
         appendEntry('user', text);
         showSpinner(true);
+        setSendEnabled(false);
         vscode.postMessage({ type: 'send', content: text });
         messageInput.value = '';
-        messageInput.focus();
     }
 
     function showSpinner(show) {
@@ -214,10 +219,12 @@
             case 'assistant':
                 appendEntry('assistant', message.message || '');
                 showSpinner(false);
+                setSendEnabled(true);
                 break;
             case 'system':
                 appendEntry('system', message.message || '');
                 showSpinner(false);
+                setSendEnabled(true);
                 break;
             case 'status':
                 setStatus(message.level || 'info', message.message || '');

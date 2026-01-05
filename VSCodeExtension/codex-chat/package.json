@@ -1,4 +1,7 @@
 {
+  "activationEvents": [
+    "onCommand:codexChat.openChat"
+  ],
   "name": "codex-chat",
   "displayName": "Codex Chat",
   "description": "Chat with the Codex agent directly inside Visual Studio Code using the project's core tools.",
@@ -10,9 +13,7 @@
   "categories": [
     "Other"
   ],
-  "activationEvents": [
-    "onCommand:codexChat.openChat"
-  ],
+  
   "main": "./src/extension.js",
   "contributes": {
     "commands": [
