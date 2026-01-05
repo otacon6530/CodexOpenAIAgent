@@ -11,6 +11,8 @@ from core.skills import list_skills, load_skill, save_skill
 from core.system_prompt import seed_history_with_system_prompts
 from core.tool_loader import load_tools
 
+TOOL_PATTERN = re.compile(r"<tool:([a-zA-Z0-9_\-]+)>(.*?)</tool>", re.DOTALL)
+
 
 def _load_all_tools():
     tools = load_tools()
@@ -36,6 +38,48 @@ def _collect_response(client, history, on_chunk=None):
             on_chunk(chunk)
     elapsed = time.time() - start
     return response, elapsed
+
+
+def _process_tool_calls(response_text, history, client, tools, config, debug_lines, debug_metrics):
+    max_iterations = max(1, int(config.get("tool_iterations", 3)))
+    tool_messages = []
+    text = response_text.strip()
+    iterations = 0
+
+    while True:
+        history.add_assistant_message(text)
+        matches = list(TOOL_PATTERN.finditer(text))
+        if not matches:
+            break
+        if iterations >= max_iterations:
+            tool_messages.append("[Tool execution limit reached]")
+            break
+
+        iterations += 1
+        for match in matches:
+            tool_name = match.group(1).strip()
+            tool_args = match.group(2).strip()
+            if tool_name in tools:
+                try:
+                    output = tools[tool_name]["run"](tool_args)
+                    message = f"[Tool {tool_name}] {output if output else '(No output)'}"
+                except Exception as exc:
+                    message = f"[Tool {tool_name}] Error: {exc}"
+            else:
+                message = f"[Tool {tool_name}] not found."
+            history.add_system_message(message)
+            tool_messages.append(message)
+            if debug_metrics:
+                preview = tool_args[:40] + ("…" if len(tool_args) > 40 else "")
+                debug_lines.append(f"[DEBUG] Tool {tool_name} invoked with args: {preview}")
+
+        followup_response, followup_elapsed = _collect_response(client, history)
+        text = followup_response.strip()
+        if debug_metrics:
+            debug_lines.append(f"[DEBUG] Tool follow-up time: {followup_elapsed:.2f}s")
+
+    cleaned = TOOL_PATTERN.sub('', text)
+    return cleaned, tool_messages
 
 
 def _send(payload):
@@ -206,17 +250,21 @@ def main():
             if debug_metrics:
                 debug_lines.append(f"[DEBUG] Chain steps: {len(chain_history)} | Chain time: {t_chain_end - t_chain_start:.2f}s")
                 debug_lines.append(f"[DEBUG] Summary time: {summary_elapsed:.2f}s")
+            final_summary, tool_messages = _process_tool_calls(summary_response, history, client, tools, config, debug_lines, debug_metrics)
+            extras_payload = aux_messages + tool_messages + ["[Chain complete. Returning to chat.]"]
             _send({
                 "type": "assistant",
-                "content": summary_response.strip(),
+                "content": final_summary,
                 "debug": debug_lines,
-                "extras": aux_messages + ["[Chain complete. Returning to chat.]"]
+                "extras": extras_payload
             })
         else:
             direct_response, direct_elapsed = _collect_response(client, history)
             if debug_metrics:
                 debug_lines.append(f"[DEBUG] Response time: {direct_elapsed:.2f}s")
-            _send({"type": "assistant", "content": direct_response.strip(), "debug": debug_lines, "extras": aux_messages})
+            final_response, tool_messages = _process_tool_calls(direct_response, history, client, tools, config, debug_lines, debug_metrics)
+            extras_payload = aux_messages + tool_messages
+            _send({"type": "assistant", "content": final_response, "debug": debug_lines, "extras": extras_payload})
 
 
 if __name__ == "__main__":

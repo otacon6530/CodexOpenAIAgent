@@ -43,15 +43,129 @@
         }
     }
 
+    function escapeHtml(str) {
+        return str
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    }
+
+    function escapeAttribute(str) {
+        return str
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    }
+
+    function formatInline(text) {
+        let escaped = escapeHtml(text);
+        escaped = escaped.replace(/`([^`]+)`/g, (_, code) => `<code>${code}</code>`);
+        escaped = escaped.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+        escaped = escaped.replace(/__(.+?)__/g, '<strong>$1</strong>');
+        escaped = escaped.replace(/\*(.+?)\*/g, '<em>$1</em>');
+        escaped = escaped.replace(/_(.+?)_/g, '<em>$1</em>');
+        escaped = escaped.replace(/\[([^\]]+)]\(([^)]+)\)/g, (_, label, url) => `<a href="${escapeAttribute(url)}" target="_blank" rel="noreferrer noopener">${label}</a>`);
+        return escaped;
+    }
+
+    function renderMarkdown(text) {
+        const lines = text.replace(/\r/g, '').split('\n');
+        const html = [];
+        let inCodeBlock = false;
+        let codeLines = [];
+        let listType;
+
+        const closeList = () => {
+            if (listType) {
+                html.push(`</${listType}>`);
+                listType = undefined;
+            }
+        };
+
+        lines.forEach((line) => {
+            if (line.trim().startsWith('```')) {
+                if (!inCodeBlock) {
+                    inCodeBlock = true;
+                    codeLines = [];
+                } else {
+                    html.push(`<pre><code>${escapeHtml(codeLines.join('\n'))}</code></pre>`);
+                    inCodeBlock = false;
+                }
+                return;
+            }
+
+            if (inCodeBlock) {
+                codeLines.push(line);
+                return;
+            }
+
+            const trimmed = line.trim();
+
+            if (!trimmed) {
+                closeList();
+                html.push('<br>');
+                return;
+            }
+
+            if (trimmed === '---') {
+                closeList();
+                html.push('<hr>');
+                return;
+            }
+
+            const headingMatch = trimmed.match(/^(#{1,6})\s+(.*)$/);
+            if (headingMatch) {
+                closeList();
+                const level = headingMatch[1].length;
+                html.push(`<h${level}>${formatInline(headingMatch[2])}</h${level}>`);
+                return;
+            }
+
+            const unorderedMatch = trimmed.match(/^[-*]\s+(.*)$/);
+            if (unorderedMatch) {
+                if (listType !== 'ul') {
+                    closeList();
+                    listType = 'ul';
+                    html.push('<ul>');
+                }
+                html.push(`<li>${formatInline(unorderedMatch[1])}</li>`);
+                return;
+            }
+
+            const orderedMatch = trimmed.match(/^\d+\.\s+(.*)$/);
+            if (orderedMatch) {
+                if (listType !== 'ol') {
+                    closeList();
+                    listType = 'ol';
+                    html.push('<ol>');
+                }
+                html.push(`<li>${formatInline(orderedMatch[1])}</li>`);
+                return;
+            }
+
+            closeList();
+            html.push(`<p>${formatInline(trimmed)}</p>`);
+        });
+
+        if (inCodeBlock) {
+            html.push(`<pre><code>${escapeHtml(codeLines.join('\n'))}</code></pre>`);
+        }
+        closeList();
+        return html.join('');
+    }
+
     function appendEntry(kind, text) {
         const entry = document.createElement('div');
         entry.className = `chat-entry ${kind}`;
-        let html = '';
+        let html;
         if (kind === 'assistant' || kind === 'system') {
-            // Render markdown for assistant/system
-            html = `<span class="chat-label">${labelForKind(kind)}</span> ` + (window.marked ? marked.parse(text) : text.replace(/\n/g, '<br>'));
+            html = `<span class="chat-label">${labelForKind(kind)}</span> ${renderMarkdown(text || '')}`;
         } else {
-            html = `<span class="chat-label">${labelForKind(kind)}</span> ` + text.replace(/\n/g, '<br>');
+            html = `<span class="chat-label">${labelForKind(kind)}</span> ${formatInline(text || '').replace(/\n/g, '<br>')}`;
         }
         entry.innerHTML = html;
         chatLog.appendChild(entry);
@@ -111,16 +225,8 @@
             case 'spinner':
                 showSpinner(!!message.show);
                 break;
-            case 'debug-lines':
-                if (Array.isArray(message.lines)) {
-                    addDebugLines(message.lines);
-                }
-                break;
             case 'controls':
                 setControlsEnabled(!!message.enabled);
-                break;
-            case 'debug-visibility':
-                setDebugVisibility(!!message.visible);
                 break;
             default:
                 break;

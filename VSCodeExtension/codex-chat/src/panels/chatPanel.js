@@ -76,7 +76,6 @@ class ChatPanel {
         const webview = this.panel.webview;
         const scriptUri = webview.asWebviewUri(vscode.Uri.joinPath(this.extensionUri, 'media', 'main.js'));
         const styleUri = webview.asWebviewUri(vscode.Uri.joinPath(this.extensionUri, 'media', 'styles.css'));
-        const markedUri = webview.asWebviewUri(vscode.Uri.joinPath(this.extensionUri, 'media', 'marked.min.js'));
         const nonce = getNonce();
 
         webview.html = `<!DOCTYPE html>
@@ -108,7 +107,6 @@ class ChatPanel {
             <button id="sendButton" disabled>Send</button>
         </footer>
     </div>
-    <script nonce="${nonce}" src="${markedUri}"></script>
     <script nonce="${nonce}" src="${scriptUri}"></script>
 </body>
 </html>`;
@@ -121,7 +119,6 @@ class ChatPanel {
         this.pythonPath = (config.get('pythonPath') || 'python').trim() || 'python';
 
         this.setControlsEnabled(false);
-        this.postToWebview({ type: 'debug-visibility', visible: false });
 
         if (!this.workspacePath) {
             this.postToWebview({ type: 'status', level: 'error', message: 'Unable to determine workspace path. Set codexChat.workspacePath in settings.' });
@@ -139,11 +136,10 @@ class ChatPanel {
         this.bridge = new PythonBridge();
 
         this.bridgeDisposables.push(this.bridge.onMessage((payload) => this.handleBridgeMessage(payload)));
-        this.bridgeDisposables.push(this.bridge.onError((message) => this.postToWebview({ type: 'debug-lines', lines: [message] })));
+        this.bridgeDisposables.push(this.bridge.onError((message) => this.postToWebview({ type: 'system', message })));
         this.bridgeDisposables.push(this.bridge.onExit(({ code, signal }) => {
             this.postToWebview({ type: 'status', level: 'warning', message: `Backend exited (code: ${code ?? 'null'}, signal: ${signal ?? 'null'}).` });
             this.setControlsEnabled(false);
-            this.postToWebview({ type: 'debug-visibility', visible: false });
         }));
 
         try {
@@ -232,7 +228,6 @@ class ChatPanel {
 
         if (typeof message.debug === 'boolean') {
             this.debugEnabled = message.debug;
-            this.postToWebview({ type: 'debug-visibility', visible: this.debugEnabled });
         }
 
         if (Array.isArray(message.debug) && message.debug.length > 0) {
