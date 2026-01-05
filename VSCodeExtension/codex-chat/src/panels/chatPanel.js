@@ -91,6 +91,7 @@ class ChatPanel {
     <div class="container">
         <header class="toolbar">
             <span id="status" class="status">Connecting…</span>
+            <span id="spinner" class="spinner" style="display:none" aria-label="Loading"></span>
             <div class="actions">
                 <button id="toggleDebug" disabled>Toggle Debug</button>
                 <button id="listTools" disabled>List Tools</button>
@@ -234,7 +235,6 @@ class ChatPanel {
         if (typeof message.debug === 'boolean') {
             this.debugEnabled = message.debug;
             this.postToWebview({ type: 'debug-visibility', visible: this.debugEnabled });
-            this.postToWebview({ type: 'status', level: 'info', message: `Debug metrics ${this.debugEnabled ? 'enabled' : 'disabled'}.` });
         }
 
         if (Array.isArray(message.debug) && message.debug.length > 0) {
@@ -251,6 +251,7 @@ class ChatPanel {
             case 'ready':
                 this.setControlsEnabled(true);
                 this.postToWebview({ type: 'status', level: 'info', message: 'Backend ready. Say hello!' });
+                this.postToWebview({ type: 'spinner', show: false });
                 break;
             case 'assistant':
                 this.postToWebview({ type: 'assistant', message: message.content || '' });
