@@ -183,6 +183,19 @@ class ChatPanel {
                     }
                 }
                 break;
+            case 'shell_approval_response':
+                // Relay shell approval response from webview to backend
+                if (this.bridge && this.bridge.isRunning) {
+                    this.bridge.send({
+                        type: 'shell_approval_response',
+                        id: message.id,
+                        approved: message.approved,
+                        approve_all: message.approve_all
+                    }).catch((error) => {
+                        this.postToWebview({ type: 'status', level: 'error', message: `Failed to send shell approval response: ${error.message || error}` });
+                    });
+                }
+                break;
             case 'toggleDebug':
                 if (this.bridge && this.bridge.isRunning) {
                     this.bridge.send({ type: 'toggle_debug' }).catch((error) => {
@@ -243,6 +256,16 @@ class ChatPanel {
         }
 
         switch (message.type) {
+            case 'shell_approval_request':
+                // Relay shell approval request to webview
+                this.postToWebview({
+                    type: 'shell_approval_request',
+                    command: message.command,
+                    reason: message.reason,
+                    approveAll: message.approveAll,
+                    id: message.id
+                });
+                break;
             case 'ready':
                 this.setControlsEnabled(true);
                 this.postToWebview({ type: 'status', level: 'info', message: 'Backend ready. Say hello!' });

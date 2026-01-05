@@ -3,6 +3,57 @@
 (function () {
     const vscode = acquireVsCodeApi();
 
+    // Modal for shell approval
+    let shellApprovalResolve = null;
+    function showShellApprovalDialog(command, id) {
+        let modal = document.getElementById('shell-approval-modal');
+        if (!modal) {
+            modal = document.createElement('div');
+            modal.id = 'shell-approval-modal';
+            modal.style.position = 'fixed';
+            modal.style.top = '0';
+            modal.style.left = '0';
+            modal.style.width = '100vw';
+            modal.style.height = '100vh';
+            modal.style.background = 'rgba(0,0,0,0.4)';
+            modal.style.display = 'flex';
+            modal.style.alignItems = 'center';
+            modal.style.justifyContent = 'center';
+            modal.style.zIndex = '9999';
+            modal.innerHTML = `
+                <div style="background: var(--vscode-editor-background, #222); color: var(--vscode-editor-foreground, #fff); padding: 2em; border-radius: 8px; min-width: 320px; max-width: 90vw; box-shadow: 0 2px 16px #0008;">
+                    <h3>Approve Shell Command</h3>
+                    <div style="margin-bottom: 1em; word-break: break-all;"><code id="shell-approval-command"></code></div>
+                    <div style="display: flex; gap: 0.5em; justify-content: flex-end;">
+                        <button id="shell-approve">Approve</button>
+                        <button id="shell-approve-all">Approve All for Session</button>
+                        <button id="shell-deny">Deny</button>
+                    </div>
+                </div>
+            `;
+            document.body.appendChild(modal);
+        }
+        modal.querySelector('#shell-approval-command').textContent = command;
+        modal.style.display = 'flex';
+        setSendEnabled(false);
+        function cleanup() {
+            modal.style.display = 'none';
+            shellApprovalResolve = null;
+        }
+        modal.querySelector('#shell-approve').onclick = () => {
+            vscode.postMessage({ type: 'shell_approval_response', id, approved: true, approve_all: false });
+            cleanup();
+        };
+        modal.querySelector('#shell-approve-all').onclick = () => {
+            vscode.postMessage({ type: 'shell_approval_response', id, approved: true, approve_all: true });
+            cleanup();
+        };
+        modal.querySelector('#shell-deny').onclick = () => {
+            vscode.postMessage({ type: 'shell_approval_response', id, approved: false, approve_all: false });
+            cleanup();
+        };
+    }
+
     const statusEl = document.getElementById('status');
     const spinnerEl = document.getElementById('spinner');
     const chatLog = document.getElementById('chatLog');
@@ -234,6 +285,9 @@
                 break;
             case 'controls':
                 setControlsEnabled(!!message.enabled);
+                break;
+            case 'shell_approval_request':
+                showShellApprovalDialog(message.command, message.id);
                 break;
             default:
                 break;

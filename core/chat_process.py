@@ -40,12 +40,34 @@ def _collect_response(client, history, on_chunk=None):
     return response, elapsed
 
 
+
 def _process_tool_calls(response_text, history, client, tools, config, debug_lines, debug_metrics):
     max_iterations = max(1, int(config.get("tool_iterations", 3)))
     tool_messages = []
     text = response_text.strip()
     iterations = 0
+    shell_approve_all = getattr(_process_tool_calls, "shell_approve_all", False)
+    shell_approval_cache = getattr(_process_tool_calls, "shell_approval_cache", {})
 
+    def request_shell_approval(command):
+        import uuid
+        approval_id = str(uuid.uuid4())
+        _send({
+            "type": "shell_approval_request",
+            "command": command,
+            "id": approval_id
+        })
+        # Wait for approval response on stdin
+        while True:
+            line = sys.stdin.readline()
+            if not line:
+                return False, False
+            try:
+                msg = json.loads(line.strip())
+            except Exception:
+                continue
+            if msg.get("type") == "shell_approval_response" and msg.get("id") == approval_id:
+                return msg.get("approved", False), msg.get("approve_all", False)
 
     while True:
         history.add_assistant_message(text)
@@ -60,6 +82,23 @@ def _process_tool_calls(response_text, history, client, tools, config, debug_lin
         for match in matches:
             tool_name = match.group(1).strip()
             tool_args = match.group(2).strip()
+            if tool_name == "shell":
+                # Approval required for shell commands
+                if not shell_approve_all:
+                    cache_key = tool_args.strip()
+                    if cache_key in shell_approval_cache:
+                        approved, approve_all = shell_approval_cache[cache_key]
+                    else:
+                        approved, approve_all = request_shell_approval(tool_args)
+                        shell_approval_cache[cache_key] = (approved, approve_all)
+                    if approve_all:
+                        shell_approve_all = True
+                        _process_tool_calls.shell_approve_all = True
+                    if not approved:
+                        message = f"[Tool shell] Command denied by user."
+                        history.add_system_message(message)
+                        tool_messages.append(message)
+                        continue
             if tool_name in tools:
                 try:
                     output = tools[tool_name]["run"](tool_args)
