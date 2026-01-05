@@ -87,6 +87,35 @@ body {
 .chat-entry.system {
     color: var(--vscode-editorCodeLens-foreground);
     font-style: italic;
+    padding: 0;
+}
+
+.collapsible-system {
+    padding: 0;
+}
+.system-message-preview {
+    color: #888;
+    font-style: italic;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    cursor: pointer;
+    padding: 4px 8px;
+    border-radius: 3px;
+    background: #f5f5f5;
+    transition: background 0.2s;
+}
+.system-message-preview.expanded {
+    background: #e0e0e0;
+}
+.system-message-full {
+    margin: 0 0 0 1.5em;
+    color: #444;
+    background: #fafafa;
+    border-left: 2px solid #bbb;
+    padding: 4px 8px;
+    border-radius: 0 3px 3px 0;
+    font-style: normal;
 }
 
 .chat-entry.error {

@@ -246,13 +246,30 @@
     function appendEntry(kind, text) {
         const entry = document.createElement('div');
         entry.className = `chat-entry ${kind}`;
-        let html;
-        if (kind === 'assistant' || kind === 'system') {
-            html = `<span class="chat-label">${labelForKind(kind)}</span> ${renderMarkdown(text || '')}`;
+        if (kind === 'system') {
+            // Collapsible system message
+            entry.classList.add('collapsible-system');
+            // Preview: first line or first 60 chars
+            const previewText = (text || '').split('\n')[0].slice(0, 60) + ((text || '').length > 60 ? '...' : '');
+            const preview = document.createElement('div');
+            preview.className = 'system-message-preview';
+            preview.innerHTML = `<span class="chat-label">${labelForKind(kind)}</span> ${escapeHtml(previewText)}`;
+            const full = document.createElement('div');
+            full.className = 'system-message-full';
+            full.innerHTML = renderMarkdown(text || '');
+            full.style.display = 'none';
+            preview.onclick = () => {
+                const collapsed = full.style.display === 'none';
+                full.style.display = collapsed ? 'block' : 'none';
+                preview.classList.toggle('expanded', collapsed);
+            };
+            entry.appendChild(preview);
+            entry.appendChild(full);
+        } else if (kind === 'assistant') {
+            entry.innerHTML = `<span class="chat-label">${labelForKind(kind)}</span> ${renderMarkdown(text || '')}`;
         } else {
-            html = `<span class="chat-label">${labelForKind(kind)}</span> ${formatInline(text || '').replace(/\n/g, '<br>')}`;
+            entry.innerHTML = `<span class="chat-label">${labelForKind(kind)}</span> ${formatInline(text || '').replace(/\n/g, '<br>')}`;
         }
-        entry.innerHTML = html;
         chatLog.appendChild(entry);
         chatLog.scrollTop = chatLog.scrollHeight;
     }

@@ -370,6 +370,8 @@ def main():
 
     _send({"type": "ready", "debug": debug_metrics})
 
+
+    force_plan_mode = False
     while True:
         request = _next_message()
         if request is None:
@@ -384,7 +386,7 @@ def main():
             break
         if action == "toggle_debug":
             debug_metrics = not debug_metrics
-            _send({"type": "notification", "content": f"Debug metrics {'enabled' if debug_metrics else 'disabled'}.", "debug": debug_metrics})
+            _send({"type": "notification", "content": f"Debug metrics {'enabled' if debug_metrics else 'disabled' }.", "debug": debug_metrics})
             continue
         if action == "message":
             user_input = request.get("content", "")
@@ -425,8 +427,17 @@ def main():
             continue
         if user_input == "!debug":
             debug_metrics = not debug_metrics
-            _send({"type": "notification", "content": f"Debug metrics {'enabled' if debug_metrics else 'disabled'}.", "debug": debug_metrics})
+            _send({"type": "notification", "content": f"Debug metrics {'enabled' if debug_metrics else 'disabled' }.", "debug": debug_metrics})
             continue
+        # Handle /plan as a special command to force planning for the current request
+        if user_input.strip().lower().startswith("/plan"):
+            # Extract the actual user request after /plan
+            user_input = user_input[len("/plan"):].strip()
+            force_plan_mode = True
+            # If nothing follows /plan, prompt for input
+            if not user_input:
+                _send({"type": "assistant", "content": "[Force planning mode enabled for next request. Please enter your request after /plan.]"})
+                continue
         if user_input.startswith("!run "):
             response_text = _handle_skill(user_input[5:].strip(), history, client, debug_metrics, debug_lines)
             _send({"type": "assistant", "content": response_text, "debug": debug_lines})
@@ -487,23 +498,35 @@ def main():
         # Add user message, but do NOT persist router prompt or its response in history
         history.add_user_message(user_input)
 
-        # Temporarily add router prompt for routing decision
-        router_prompt = (
-            "Does the following user request require a multi-step plan (tools/actions) or can it be answered directly? "
-            "Reply with 'plan' or 'respond'. Request: '" + user_input + "'"
-        )
-        # Save current history state
-        orig_history = [list(block) for block in history.memory]
-        history.add_user_message(router_prompt)
-        router_response, _ = _collect_response(client, history)
-        decision = router_response.strip().lower()
-        # Restore history to before router prompt
-        history.memory = orig_history
+        # If force_plan_mode is set, skip router and force planning
+        if force_plan_mode:
+            decision = "plan"
+            force_plan_mode = False
+        else:
+            # Improved router prompt for plan/respond decision
+            router_prompt = (
+                "You are an AI assistant that can either answer questions directly or plan multi-step solutions using available tools.\n"
+                "For the following user request, decide if it requires multi-step planning (using tools or actions in sequence) or if you can answer it directly.\n"
+                "- If the request is simple (e.g., 'What is 2+2?' or 'What’s the weather?'), reply with: respond\n"
+                "- If the request requires multiple steps, tool use, or actions (e.g., 'Create a file and then summarize its contents'), reply with: plan\n"
+                f"User request: '{user_input}'\n"
+                "Reply with only one word: plan or respond"
+            )
+            # Save current history state
+            orig_history = [list(block) for block in history.memory]
+            history.add_user_message(router_prompt)
+            router_response, _ = _collect_response(client, history)
+            decision = router_response.strip().lower()
+            # Restore history to before router prompt
+            history.memory = orig_history
 
         if "plan" in decision:
+            chain_limit = max(1, int(config.get("chain_limit", 25)))
+            max_step_retries = max(0, int(config.get("agent_step_retries", 2)))
+
             plan_prompt = (
                 "Given the user's request, break it down into a numbered list of concrete steps (tools or actions) to achieve the goal. "
-                f"Only plan up to {config.get('chain_limit', 25)} steps. Respond with the plan as a numbered list."
+                f"Only plan up to {chain_limit} steps. Respond with the plan as a numbered list."
             )
             history.add_user_message(plan_prompt)
             plan_response, plan_elapsed = _collect_response(client, history)
@@ -514,34 +537,118 @@ def main():
                 aux_messages.append("[No plan steps found. Try rephrasing your request.]")
                 _send({"type": "assistant", "content": "\n".join(aux_messages), "debug": debug_lines})
                 continue
-            chain_history = []
-            t_chain_start = time.time()
-            for step in steps[: config.get("chain_limit", 25)]:
-                history.add_user_message(f"Step: {step}")
-                step_response, step_elapsed = _collect_response(client, history)
-                history.add_assistant_message(step_response)
-                chain_history.append({"step": step, "response": step_response.strip()})
-                if debug_metrics:
-                    debug_lines.append(f"[DEBUG] Step time: {step_elapsed:.2f}s")
-            t_chain_end = time.time()
+
+            extras_payload = list(aux_messages)
+            step_records = []
+            start_time = time.time()
+
+            for index, step in enumerate(steps[:chain_limit], start=1):
+                extras_payload.append(f"[Plan Step {index}] {step}")
+                attempt = 0
+                attempt_count = 0
+                feedback = ""
+                last_outcome = ""
+                verification_text = ""
+                step_complete = False
+
+                while attempt <= max_step_retries:
+                    attempt_order = attempt + 1
+                    execute_prompt = (
+                        f"Execute step {index}: '{step}'. "
+                        "Use tools when needed by returning <tool:name>arguments</tool>. "
+                        "Provide clear results of your actions."
+                    )
+                    if feedback:
+                        execute_prompt += f" Previous feedback: {feedback}"
+
+                    history.add_user_message(execute_prompt)
+                    step_response, step_elapsed = _collect_response(client, history)
+                    if debug_metrics:
+                        debug_lines.append(f"[DEBUG] Step {index} attempt {attempt_order} execution time: {step_elapsed:.2f}s")
+
+                    step_result, step_extras = _process_tool_calls(step_response, history, client, tools, config, debug_lines, debug_metrics)
+                    extras_payload.extend(step_extras)
+                    last_outcome = step_result
+
+                    verification_prompt = (
+                        f"Based on the recent actions and results: {last_outcome}\n"
+                        f"Did this complete step {index} ('{step}')? Answer 'yes' if complete, otherwise answer 'no' and explain what remains."
+                    )
+                    history.add_user_message(verification_prompt)
+                    verification_response, verify_elapsed = _collect_response(client, history)
+                    if debug_metrics:
+                        debug_lines.append(f"[DEBUG] Step {index} attempt {attempt_order} verification time: {verify_elapsed:.2f}s")
+
+                    verification_text = verification_response.strip()
+                    normalized_verification = verification_text.lower()
+                    attempt_count = attempt_order
+                    if normalized_verification.startswith("yes"):
+                        step_complete = True
+                        extras_payload.append(f"[Step {index}] Completed in {attempt_order} attempt(s).")
+                        break
+
+                    extras_payload.append(
+                        f"[Step {index}] Attempt {attempt_order} incomplete: {verification_text.splitlines()[0]}"
+                    )
+                    feedback = verification_text
+                    attempt += 1
+                    if attempt > max_step_retries:
+                        break
+                    history.add_user_message(
+                        f"Step '{step}' remains incomplete. Adjust your approach using this feedback: {feedback}. Then try again."
+                    )
+
+                step_records.append({
+                    "index": index,
+                    "step": step,
+                    "completed": step_complete,
+                    "attempts": attempt_count or (attempt + 1),
+                    "result": last_outcome,
+                    "verification": verification_text or feedback,
+                })
+
+                if not step_complete:
+                    extras_payload.append(
+                        f"[Step {index}] Failed after {attempt_count or (attempt + 1)} attempt(s). Latest outcome: {last_outcome or '(no result)'}"
+                    )
+
+            elapsed_time = time.time() - start_time
+            if debug_metrics:
+                debug_lines.append(
+                    f"[DEBUG] Agentic planning steps executed: {len(step_records)} | Total time: {elapsed_time:.2f}s"
+                )
+
+            step_summaries = "\n".join(
+                [
+                    f"Step {record['index']}: {record['step']} -> {'complete' if record['completed'] else 'incomplete'}"
+                    f" | Attempts: {record['attempts']}"
+                    f" | Result: {record['result']}"
+                    for record in step_records
+                ]
+            )
+
             summary_prompt = (
-                f"Provide a response that is appropriate based on the user's prompt: '{user_input}'.\n"
-                "Knowing these Steps and results:\n" +
-                "\n".join([f"Step: {entry['step']}\nResult: {entry['response']}" for entry in chain_history])
+                f"Goal: '{user_input}'.\n"
+                "Provide a final user-facing summary that explains the work completed, mentions any remaining tasks, and confirms whether the goal is satisfied.\n"
+                "Here are the step outcomes:\n"
+                f"{step_summaries}\n"
+                "Respond concisely for the user."
             )
             history.add_user_message(summary_prompt)
             summary_response, summary_elapsed = _collect_response(client, history)
             if debug_metrics:
-                debug_lines.append(f"[DEBUG] Chain steps: {len(chain_history)} | Chain time: {t_chain_end - t_chain_start:.2f}s")
-                debug_lines.append(f"[DEBUG] Summary time: {summary_elapsed:.2f}s")
-            final_summary, tool_messages = _process_tool_calls(summary_response, history, client, tools, config, debug_lines, debug_metrics)
-            extras_payload = aux_messages + tool_messages + ["[Chain complete. Returning to chat.]"]
+                debug_lines.append(f"[DEBUG] Final summary time: {summary_elapsed:.2f}s")
+
+            final_summary, final_extras = _process_tool_calls(summary_response, history, client, tools, config, debug_lines, debug_metrics)
+            extras_payload.extend(final_extras)
+
             _send({
                 "type": "assistant",
                 "content": final_summary,
                 "debug": debug_lines,
-                "extras": extras_payload
+                "extras": extras_payload,
             })
+            continue
         else:
             direct_response, direct_elapsed = _collect_response(client, history)
             if debug_metrics:
