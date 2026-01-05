@@ -1,0 +1,10 @@
+G:\Dev\CodexOpenAIAgent\VSPlugin\CodexChatExtension\obj\Release\net6.0-windows\CodexChatExtension.csproj.AssemblyReference.cache
+G:\Dev\CodexOpenAIAgent\VSPlugin\CodexChatExtension\obj\Release\net6.0-windows\ToolWindows\CodexChatWindowControl.baml
+G:\Dev\CodexOpenAIAgent\VSPlugin\CodexChatExtension\obj\Release\net6.0-windows\ToolWindows\CodexChatWindowControl.g.cs
+G:\Dev\CodexOpenAIAgent\VSPlugin\CodexChatExtension\obj\Release\net6.0-windows\CodexChatExtension_MarkupCompile.cache
+G:\Dev\CodexOpenAIAgent\VSPlugin\CodexChatExtension\obj\Release\net6.0-windows\CodexChatExtension.g.resources
+G:\Dev\CodexOpenAIAgent\VSPlugin\CodexChatExtension\obj\Release\net6.0-windows\CodexChatExtension.GeneratedMSBuildEditorConfig.editorconfig
+G:\Dev\CodexOpenAIAgent\VSPlugin\CodexChatExtension\obj\Release\net6.0-windows\CodexChatExtension.AssemblyInfoInputs.cache
+G:\Dev\CodexOpenAIAgent\VSPlugin\CodexChatExtension\obj\Release\net6.0-windows\CodexChatExtension.AssemblyInfo.cs
+G:\Dev\CodexOpenAIAgent\VSPlugin\CodexChatExtension\obj\Release\net6.0-windows\CodexChatExtension.csproj.CoreCompileInputs.cache
+G:\Dev\CodexOpenAIAgent\VSPlugin\CodexChatExtension\obj\Release\net6.0-windows\CodexChatExtension.sourcelink.json

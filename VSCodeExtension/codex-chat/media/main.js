@@ -4,6 +4,7 @@
     const vscode = acquireVsCodeApi();
 
     const statusEl = document.getElementById('status');
+    const spinnerEl = document.getElementById('spinner');
     const chatLog = document.getElementById('chatLog');
     const debugList = document.getElementById('debugList');
     const debugSection = document.getElementById('debugSection');
@@ -32,9 +33,16 @@
             return;
         }
         appendEntry('user', text);
+        showSpinner(true);
         vscode.postMessage({ type: 'send', content: text });
         messageInput.value = '';
         messageInput.focus();
+    }
+
+    function showSpinner(show) {
+        if (spinnerEl) {
+            spinnerEl.style.display = show ? '' : 'none';
+        }
     }
 
     function appendEntry(kind, text) {
@@ -110,9 +118,11 @@
         switch (message.type) {
             case 'assistant':
                 appendEntry('assistant', message.message || '');
+                showSpinner(false);
                 break;
             case 'system':
                 appendEntry('system', message.message || '');
+                showSpinner(false);
                 break;
             case 'status':
                 setStatus(message.level || 'info', message.message || '');
@@ -127,6 +137,9 @@
                 break;
             case 'debug-visibility':
                 setDebugVisibility(!!message.visible);
+                break;
+            case 'spinner':
+                showSpinner(!!message.show);
                 break;
             default:
                 break;

@@ -39,6 +39,7 @@
     }
   },
   "scripts": {
+    "build": "echo No build step needed.",
     "package": "vsce package --allow-missing-repository"
   },
   "devDependencies": {
