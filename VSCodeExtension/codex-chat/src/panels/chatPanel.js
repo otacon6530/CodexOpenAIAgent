@@ -170,6 +170,15 @@ class ChatPanel {
         }
 
         switch (message.type) {
+                case 'editor_query':
+                    this.handleEditorQuery(message).catch((error) => {
+                        const errMsg = error && error.message ? error.message : String(error);
+                        if (this.bridge && this.bridge.isRunning) {
+                            this.bridge.send({ type: 'editor_query_response', id: message.id, error: errMsg }).catch(() => undefined);
+                        }
+                        this.postToWebview({ type: 'status', level: 'error', message: `Failed to service editor query: ${errMsg}` });
+                    });
+                    break;
             case 'send':
                 if (!this.bridge || !this.bridge.isRunning) {
                     this.postToWebview({ type: 'status', level: 'error', message: 'Backend is not running. Click reconnect.' });
@@ -310,6 +319,251 @@ class ChatPanel {
                     console.error('Failed to dispose listener', err);
                 }
             }
+        }
+    }
+
+    async handleEditorQuery(message) {
+        if (!message || !message.id || !message.query) {
+            throw new Error('Invalid editor query message.');
+        }
+        if (!this.bridge || !this.bridge.isRunning) {
+            throw new Error('Backend bridge is not running.');
+        }
+
+        const payload = message.payload || {};
+        let result;
+        switch (message.query) {
+            case 'diagnostics':
+                result = this.collectDiagnostics(payload);
+                break;
+            case 'open_editors':
+                result = this.collectOpenEditors();
+                break;
+            case 'workspace_info':
+                result = this.collectWorkspaceInfo();
+                break;
+            case 'document_symbols':
+                result = await this.collectDocumentSymbols(payload);
+                break;
+            default:
+                throw new Error(`Unknown editor query '${message.query}'.`);
+        }
+
+        await this.bridge.send({ type: 'editor_query_response', id: message.id, result });
+    }
+
+    collectDiagnostics(payload) {
+        const options = typeof payload === 'object' && payload ? payload : {};
+        const pathFilterRaw = typeof options.path === 'string' ? options.path.trim() : '';
+        const severityFilterRaw = typeof options.severity === 'string' ? options.severity.trim().toLowerCase() : '';
+        const limit = Number.isInteger(options.limit) && options.limit > 0 ? Math.min(options.limit, 500) : 200;
+        const includeEmpty = options.includeEmpty === true;
+
+        const normPathFilter = pathFilterRaw ? pathFilterRaw.replace(/\\/g, '/').toLowerCase() : '';
+
+        const entries = [];
+        const counts = { error: 0, warning: 0, information: 0, hint: 0 };
+        let total = 0;
+        let collected = 0;
+
+        const severityMatches = (severity) => (!severityFilterRaw || severity === severityFilterRaw);
+
+        for (const [uri, diagnostics] of vscode.languages.getDiagnostics()) {
+            const matchesPath = this.pathMatches(uri, normPathFilter);
+            if (!matchesPath && normPathFilter) {
+                continue;
+            }
+
+            if (!Array.isArray(diagnostics) || diagnostics.length === 0) {
+                if (includeEmpty && matchesPath) {
+                    entries.push({ uri: uri.fsPath, diagnostics: [] });
+                }
+                continue;
+            }
+
+            const collectedDiagnostics = [];
+            for (const diagnostic of diagnostics) {
+                const severity = this.diagnosticSeverityToString(diagnostic.severity);
+                if (!severityMatches(severity)) {
+                    continue;
+                }
+
+                total += 1;
+                counts[severity] = (counts[severity] || 0) + 1;
+
+                if (collected < limit) {
+                    collectedDiagnostics.push(this.toDiagnosticObject(uri, diagnostic, severity));
+                    collected += 1;
+                }
+            }
+
+            if (collectedDiagnostics.length > 0) {
+                entries.push({
+                    uri: uri.fsPath,
+                    diagnostics: collectedDiagnostics,
+                });
+            } else if (includeEmpty && matchesPath) {
+                entries.push({ uri: uri.fsPath, diagnostics: [] });
+            }
+
+            if (collected >= limit) {
+                break;
+            }
+        }
+
+        return {
+            summary: counts,
+            returned: collected,
+            total,
+            truncated: total > collected,
+            items: entries,
+            limit,
+        };
+    }
+
+    collectOpenEditors() {
+        const editors = vscode.window.visibleTextEditors || [];
+        const active = vscode.window.activeTextEditor;
+        return editors.map((editor) => ({
+            uri: editor.document ? editor.document.uri.fsPath : undefined,
+            languageId: editor.document ? editor.document.languageId : undefined,
+            isDirty: editor.document ? editor.document.isDirty : false,
+            isActive: active ? editor.document === active.document : false,
+            selections: editor.selections ? editor.selections.map((sel) => ({
+                start: { line: sel.start.line + 1, character: sel.start.character + 1 },
+                end: { line: sel.end.line + 1, character: sel.end.character + 1 },
+            })) : [],
+        }));
+    }
+
+    collectWorkspaceInfo() {
+        const folders = vscode.workspace.workspaceFolders || [];
+        const configurationTarget = vscode.ConfigurationTarget ? 'workspace' : undefined;
+        return {
+            workspaceFolders: folders.map((folder) => ({
+                name: folder.name,
+                path: folder.uri.fsPath,
+            })),
+            activeFile: vscode.window.activeTextEditor && vscode.window.activeTextEditor.document
+                ? vscode.window.activeTextEditor.document.uri.fsPath
+                : undefined,
+            configurationTarget,
+        };
+    }
+
+    async collectDocumentSymbols(payload) {
+        const options = typeof payload === 'object' && payload ? payload : {};
+        const path = typeof options.path === 'string' ? options.path.trim() : '';
+        let targetUri;
+        if (path) {
+            targetUri = this.resolveUri(path);
+        } else if (vscode.window.activeTextEditor) {
+            targetUri = vscode.window.activeTextEditor.document.uri;
+        }
+        if (!targetUri) {
+            throw new Error('No target document available for symbol lookup.');
+        }
+
+        const symbols = await vscode.commands.executeCommand('vscode.executeDocumentSymbolProvider', targetUri);
+        if (!symbols || symbols.length === 0) {
+            return { uri: targetUri.fsPath, symbols: [] };
+        }
+
+        const normalize = (symbol) => {
+            if (!symbol) {
+                return undefined;
+            }
+            const convertRange = (range) => ({
+                start: { line: range.start.line + 1, character: range.start.character + 1 },
+                end: { line: range.end.line + 1, character: range.end.character + 1 },
+            });
+            const entry = {
+                name: symbol.name,
+                detail: symbol.detail || '',
+                kind: this.symbolKindToString(symbol.kind),
+                range: convertRange(symbol.range),
+                selectionRange: convertRange(symbol.selectionRange || symbol.range),
+            };
+            if (Array.isArray(symbol.children) && symbol.children.length > 0) {
+                entry.children = symbol.children.map(normalize).filter(Boolean);
+            }
+            return entry;
+        };
+
+        return {
+            uri: targetUri.fsPath,
+            symbols: symbols.map(normalize).filter(Boolean),
+        };
+    }
+
+    pathMatches(uri, normPathFilter) {
+        if (!uri || !uri.fsPath) {
+            return false;
+        }
+        if (!normPathFilter) {
+            return true;
+        }
+        const fsPath = uri.fsPath.replace(/\\/g, '/').toLowerCase();
+        return fsPath === normPathFilter
+            || fsPath.endsWith(normPathFilter)
+            || fsPath.includes(normPathFilter);
+    }
+
+    toDiagnosticObject(uri, diagnostic, severity) {
+        return {
+            file: uri.fsPath,
+            message: diagnostic.message,
+            source: diagnostic.source || '',
+            code: diagnostic.code || '',
+            severity,
+            range: {
+                start: { line: diagnostic.range.start.line + 1, character: diagnostic.range.start.character + 1 },
+                end: { line: diagnostic.range.end.line + 1, character: diagnostic.range.end.character + 1 },
+            },
+        };
+    }
+
+    diagnosticSeverityToString(severity) {
+        switch (severity) {
+            case vscode.DiagnosticSeverity.Error:
+                return 'error';
+            case vscode.DiagnosticSeverity.Warning:
+                return 'warning';
+            case vscode.DiagnosticSeverity.Information:
+                return 'information';
+            case vscode.DiagnosticSeverity.Hint:
+                return 'hint';
+            default:
+                return 'unknown';
+        }
+    }
+
+    symbolKindToString(kind) {
+        const SymbolKind = vscode.SymbolKind;
+        for (const key of Object.keys(SymbolKind)) {
+            if (SymbolKind[key] === kind) {
+                return key.toLowerCase();
+            }
+        }
+        return 'unknown';
+    }
+
+    resolveUri(inputPath) {
+        if (!inputPath) {
+            return undefined;
+        }
+        const folders = vscode.workspace.workspaceFolders || [];
+        for (const folder of folders) {
+            const candidate = vscode.Uri.joinPath(folder.uri, inputPath);
+            if (vscode.workspace.fs) {
+                // We cannot synchronously check existence; return first candidate.
+                return candidate;
+            }
+        }
+        try {
+            return vscode.Uri.file(inputPath);
+        } catch (err) {
+            return undefined;
         }
     }
 }

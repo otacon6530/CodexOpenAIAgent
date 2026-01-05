@@ -11,7 +11,7 @@ from core.skills import list_skills, load_skill, save_skill
 from core.system_prompt import seed_history_with_system_prompts
 from core.tool_loader import load_tools
 
-TOOL_PATTERN = re.compile(r"<tool:([a-zA-Z0-9_\-]+)>(.*?)</tool>", re.DOTALL)
+TOOL_PATTERN = re.compile(r"<tool:([a-zA-Z0-9_.\-]+)>(.*?)</tool>", re.DOTALL)
 
 
 def _load_all_tools():
@@ -57,17 +57,10 @@ def _process_tool_calls(response_text, history, client, tools, config, debug_lin
             "command": command,
             "id": approval_id
         })
-        # Wait for approval response on stdin
-        while True:
-            line = sys.stdin.readline()
-            if not line:
-                return False, False
-            try:
-                msg = json.loads(line.strip())
-            except Exception:
-                continue
-            if msg.get("type") == "shell_approval_response" and msg.get("id") == approval_id:
-                return msg.get("approved", False), msg.get("approve_all", False)
+        response = _wait_for_message("shell_approval_response", approval_id)
+        if response is None:
+            return False, False
+        return response.get("approved", False), response.get("approve_all", False)
 
     while True:
         history.add_assistant_message(text)
@@ -129,6 +122,29 @@ def _send(payload):
     sys.stdout.flush()
 
 
+def _wait_for_message(expected_type, expected_id=None, timeout=None):
+    if expected_type is None:
+        raise ValueError("expected_type is required")
+
+    deadline = time.time() + timeout if timeout else None
+
+    while True:
+        if deadline is not None and time.time() > deadline:
+            return None
+        line = sys.stdin.readline()
+        if not line:
+            return None
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            message = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if message.get("type") == expected_type and (expected_id is None or message.get("id") == expected_id):
+            return message
+
+
 def _handle_skill(skill_name, history, client, debug_metrics, debug_lines):
     skill = load_skill(skill_name)
     if not skill:
@@ -146,11 +162,97 @@ def _handle_skill(skill_name, history, client, debug_metrics, debug_lines):
     return "\n".join(result_lines)
 
 
+def _request_editor_query(query, payload=None, timeout=10):
+    import uuid
+
+    request_id = str(uuid.uuid4())
+    message = {"type": "editor_query", "query": query, "id": request_id}
+    if payload is not None:
+        message["payload"] = payload
+
+    _send(message)
+
+    response = _wait_for_message("editor_query_response", request_id, timeout=timeout)
+    if response is None:
+        raise RuntimeError("No response from VS Code extension.")
+    if response.get("error"):
+        raise RuntimeError(response.get("error"))
+    return response.get("result")
+
+
+def _parse_editor_payload(arguments):
+    text = (arguments or "").strip()
+    if not text:
+        return {}
+    try:
+        data = json.loads(text)
+        if isinstance(data, dict):
+            return data
+        return {"value": data}
+    except json.JSONDecodeError:
+        return {"path": text}
+
+
+def _inject_editor_tools(tools):
+    def as_json(result):
+        return json.dumps(result, indent=2)
+
+    def diagnostics_tool(arguments):
+        payload = _parse_editor_payload(arguments)
+        try:
+            result = _request_editor_query("diagnostics", payload or None)
+        except Exception as exc:
+            return f"Diagnostics query failed: {exc}"
+        return as_json(result)
+
+    def open_editors_tool(arguments):
+        try:
+            result = _request_editor_query("open_editors")
+        except Exception as exc:
+            return f"Open editors query failed: {exc}"
+        return as_json(result)
+
+    def workspace_info_tool(arguments):
+        try:
+            result = _request_editor_query("workspace_info")
+        except Exception as exc:
+            return f"Workspace info query failed: {exc}"
+        return as_json(result)
+
+    def document_symbols_tool(arguments):
+        payload = _parse_editor_payload(arguments)
+        if not payload:
+            payload = {}
+        try:
+            result = _request_editor_query("document_symbols", payload)
+        except Exception as exc:
+            return f"Document symbols query failed: {exc}"
+        return as_json(result)
+
+    tools["editor.diagnostics"] = {
+        "run": diagnostics_tool,
+        "description": "Inspect VS Code diagnostics. Args: optional JSON with path/severity/limit or a file path string.",
+    }
+    tools["editor.open_editors"] = {
+        "run": open_editors_tool,
+        "description": "List currently visible editors and selections in VS Code.",
+    }
+    tools["editor.workspace_info"] = {
+        "run": workspace_info_tool,
+        "description": "Fetch workspace folders and active file from VS Code.",
+    }
+    tools["editor.document_symbols"] = {
+        "run": document_symbols_tool,
+        "description": "List document symbols for the active file or a provided path (JSON input: {\"path\": " + "..." + "}).",
+    }
+
+
 def main():
     config = load_config()
     client = OpenAIClient(config)
     history = ConversationHistory()
     tools = _load_all_tools()
+    _inject_editor_tools(tools)
     seed_history_with_system_prompts(history, tools)
     debug_metrics = config.get("debug_metrics", False)
 
@@ -170,6 +272,9 @@ def main():
             continue
 
         action = request.get("type")
+        if action in {"editor_query_response", "shell_approval_response"}:
+            # Response arrived with no waiting handler; skip.
+            continue
         if action == "shutdown":
             _send({"type": "notification", "content": "Shutting down."})
             break
@@ -209,6 +314,7 @@ def main():
         if user_input == "!new":
             history = ConversationHistory()
             tools = _load_all_tools()
+            _inject_editor_tools(tools)
             seed_history_with_system_prompts(history, tools)
             aux_messages.append("[History cleared]")
             _send({"type": "assistant", "content": "\n".join(aux_messages), "debug": debug_lines})
@@ -244,6 +350,34 @@ def main():
             else:
                 result = f"Tool '{toolname}' not found."
             _send({"type": "assistant", "content": str(result), "debug": debug_lines})
+            continue
+
+
+        # Debug: print raw user input for tool call troubleshooting
+        print(f"[DEBUG] Raw user_input: {user_input}", file=sys.stderr)
+        # Check for explicit tool call in user input and return output directly (no LLM follow-up)
+        tool_matches = list(TOOL_PATTERN.finditer(user_input))
+        if tool_matches:
+            print("[DEBUG] User tool call detected in input.", file=sys.stderr)
+            tool_messages = []
+            for match in tool_matches:
+                tool_name = match.group(1).strip()
+                tool_args = match.group(2).strip()
+                print(f"[DEBUG] Executing tool: {tool_name} with args: {tool_args}", file=sys.stderr)
+                if tool_name in tools:
+                    try:
+                        output = tools[tool_name]["run"](tool_args)
+                        message = output if output else '(No output)'
+                    except Exception as exc:
+                        message = f"[Tool {tool_name}] Error: {exc}"
+                else:
+                    message = f"[Tool {tool_name}] not found."
+                tool_messages.append(message)
+            result = "\n".join(tool_messages)
+            if not result.strip():
+                _send({"type": "system", "message": "[DEBUG] Tool executed but returned empty output."})
+            else:
+                _send({"type": "assistant", "content": result, "debug": debug_lines})
             continue
 
         # Add user message, but do NOT persist router prompt or its response in history
