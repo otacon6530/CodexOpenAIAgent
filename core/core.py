@@ -53,117 +53,17 @@ def _format_tools(tools):
     return "\n".join([f"- {name}: {meta['description']}" for name, meta in tools.items()])
 
 
-def _collect_response(client, history, on_chunk=None):
-    start = time.time()
-    response = ""
-    # Only include system/tool instructions once, and last 3 turns for efficiency
-    from core.functions.build_tools_prompt import build_tools_prompt
-    tool_instructions = build_tools_prompt(load_tools())
-    if not hasattr(history, "get_efficient_prompt"):
-        raise AttributeError("History object must implement get_efficient_prompt in production.")
-    messages = history.get_efficient_prompt(include_system=True, recent_turns=3, tool_instructions=tool_instructions)
-    # Strip metadata from log (should already be stripped, but double-sanitize for safety)
-    log_prompt = [
-        {k: v for k, v in m.items() if k in ("role", "content")} for m in messages
-    ]
-    logger.info(f"LLM PROMPT: {json.dumps(log_prompt)}")
-    for chunk in client.stream_chat(messages):
-        response += chunk
-        if on_chunk:
-            on_chunk(chunk)
-    elapsed = time.time() - start
-    return response, elapsed
+from core.functions.core_utils import load_all_tools, format_tools, parse_editor_payload
+from core.functions.editor_tools import inject_editor_tools
+from core.functions.agent_planning import summarize_plan, summarize_tool_use
+from core.functions.router_utils import format_router_result, verify_tool_result
+from core.functions.llm_response import collect_response, process_tool_calls
+
+# ...existing code...
 
 
 
-def _process_tool_calls(response_text, history, client, tools, config, debug_lines, debug_metrics):
-    max_iterations = max(1, int(config.get("tool_iterations", 3)))
-    tool_messages = []
-    text = response_text.strip()
-    iterations = 0
-    shell_approve_all = getattr(_process_tool_calls, "shell_approve_all", False)
-    shell_approval_cache = getattr(_process_tool_calls, "shell_approval_cache", {})
-
-    def request_shell_approval(command):
-        import uuid
-        approval_id = str(uuid.uuid4())
-        _send({
-            "type": "shell_approval_request",
-            "command": command,
-            "id": approval_id
-        })
-        response = _wait_for_message("shell_approval_response", approval_id)
-        if response is None:
-            return False, False
-        return response.get("approved", False), response.get("approve_all", False)
-
-    llm_summaries = []
-    first_tool_output = None
-    while True:
-        history.add_assistant_message(text)
-        matches = list(TOOL_PATTERN.finditer(text))
-        if not matches:
-            break
-        if iterations >= max_iterations:
-            tool_messages.append("[Tool execution limit reached]")
-            break
-
-        iterations += 1
-        for match in matches:
-            tool_name = match.group(1).strip()
-            tool_args = match.group(2).strip()
-            if tool_name == "shell":
-                # Approval required for shell commands
-                if not shell_approve_all:
-                    cache_key = tool_args.strip()
-                    if cache_key in shell_approval_cache:
-                        approved, approve_all = shell_approval_cache[cache_key]
-                    else:
-                        approved, approve_all = request_shell_approval(tool_args)
-                        shell_approval_cache[cache_key] = (approved, approve_all)
-                    if approve_all:
-                        shell_approve_all = True
-                        _process_tool_calls.shell_approve_all = True
-                    if not approved:
-                        message = f"[Tool shell] Command denied by user."
-                        history.add_system_message(message)
-                        tool_messages.append(message)
-                        continue
-            if tool_name in tools:
-                try:
-                    output = tools[tool_name]["run"](tool_args)
-                    if output:
-                        message = output
-                        if first_tool_output is None:
-                            first_tool_output = message
-                        history.add_system_message(message)
-                        tool_messages.append(message)
-                except Exception as exc:
-                    message = f"[Tool {tool_name}] Error: {exc}"
-                    history.add_system_message(message)
-                    tool_messages.append(message)
-            else:
-                message = f"[Tool {tool_name}] not found."
-                history.add_system_message(message)
-                tool_messages.append(message)
-            if debug_metrics:
-                preview = tool_args[:40] + ("…" if len(tool_args) > 40 else "")
-                debug_lines.append(f"[DEBUG] Tool {tool_name} invoked with args: {preview}")
-
-        # Prompt the LLM to summarize/explain the tool output for the user
-        history.add_user_message("Please summarize or explain the result of the previous tool call for the user.")
-        followup_response, followup_elapsed = _collect_response(client, history)
-        llm_summaries.append(followup_response.strip())
-        text = followup_response.strip()
-        if debug_metrics:
-            debug_lines.append(f"[DEBUG] Tool follow-up time: {followup_elapsed:.2f}s")
-
-    cleaned = TOOL_PATTERN.sub('', text)
-    # Prioritize tool output as main message, append LLM summary as extras
-    # Always send the LLM summary as the assistant's reply after a tool call
-    main_message = text if text else (first_tool_output if first_tool_output is not None else cleaned)
-    extras = tool_messages + llm_summaries
-    return main_message, extras
+# ...existing code...
 
 
 def _send(payload):
@@ -243,7 +143,7 @@ def _wait_for_message(expected_type, expected_id=None, timeout=None):
         _PENDING_MESSAGES.append(message)
 
 
-def _handle_skill(skill_name, history, client, debug_metrics, debug_lines):
+def _handle_skill(skill_name, history, client, tools, debug_metrics, debug_lines):
     skill = load_skill(skill_name)
     if not skill:
         return f"Skill '{skill_name}' not found."
@@ -251,7 +151,7 @@ def _handle_skill(skill_name, history, client, debug_metrics, debug_lines):
     for index, step in enumerate(skill.get("steps", []), start=1):
         result_lines.append(f"[Skill Step {index}] {step}")
         history.add_user_message(f"Skill step: {step}")
-        step_response, elapsed = _collect_response(client, history)
+        step_response, elapsed = collect_response(client, history, tools)
         history.add_assistant_message(step_response)
         result_lines.append(step_response.strip())
         if debug_metrics:
@@ -278,136 +178,10 @@ def _request_editor_query(query, payload=None, timeout=10):
     return response.get("result")
 
 
-def _parse_editor_payload(arguments):
-    text = (arguments or "").strip()
-    if not text:
-        return {}
-    try:
-        data = json.loads(text)
-        if isinstance(data, dict):
-            return data
-        return {"value": data}
-    except json.JSONDecodeError:
-        return {"path": text}
+# ...existing code...
 
 
-def _inject_editor_tools(tools):
-    def as_json(result):
-        return json.dumps(result, indent=2)
-
-    def format_diagnostics(result):
-        if not isinstance(result, dict):
-            return as_json(result)
-
-        summary = result.get("summary", {})
-        total = result.get("total")
-        returned = result.get("returned")
-        truncated = result.get("truncated")
-
-        lines = []
-        lines.append("Diagnostics Summary:")
-        lines.append(
-            f"  Errors: {summary.get('error', 0)} | Warnings: {summary.get('warning', 0)} | "
-            f"Info: {summary.get('information', 0)} | Hints: {summary.get('hint', 0)}"
-        )
-        lines.append(f"  Returned: {returned} of {total}{' (truncated)' if truncated else ''}")
-
-        items = result.get("items") or []
-        if not items:
-            lines.append("No diagnostics reported.")
-            return "\n".join(lines)
-
-        severity_order = ["error", "warning", "information", "hint"]
-        per_file_limit = 5
-        lines.append("\nFiles:")
-        for entry in items:
-            file_path = entry.get("uri") or entry.get("file") or "(unknown file)"
-            diagnostics = entry.get("diagnostics") or []
-            if not diagnostics:
-                continue
-
-            lines.append(f"  {file_path}")
-            # Sort diagnostics by severity order then range start line
-            def sort_key(diag):
-                severity = diag.get("severity", "hint")
-                try:
-                    severity_index = severity_order.index(severity)
-                except ValueError:
-                    severity_index = len(severity_order)
-                rng = diag.get("range", {})
-                start = rng.get("start", {})
-                return (severity_index, start.get("line", 0), start.get("character", 0))
-
-            sorted_diags = sorted(diagnostics, key=sort_key)
-            for diag in sorted_diags[:per_file_limit]:
-                severity = diag.get("severity", "unknown").capitalize()
-                rng = diag.get("range", {})
-                start = rng.get("start", {})
-                message = diag.get("message", "(no message)")
-                code = diag.get("code")
-                source = diag.get("source")
-                location = f"L{start.get('line', '?')}:{start.get('character', '?')}"
-                extra = []
-                if source:
-                    extra.append(str(source))
-                if code:
-                    extra.append(str(code))
-                extra_text = f" ({', '.join(extra)})" if extra else ""
-                lines.append(f"    - {severity} {location}{extra_text}: {message}")
-
-            if len(sorted_diags) > per_file_limit:
-                lines.append(f"    … {len(sorted_diags) - per_file_limit} more entries")
-
-        return "\n".join(lines)
-
-    def diagnostics_tool(arguments):
-        payload = _parse_editor_payload(arguments)
-        try:
-            result = _request_editor_query("diagnostics", payload or None)
-        except Exception as exc:
-            return f"Diagnostics query failed: {exc}"
-        return format_diagnostics(result)
-
-    def open_editors_tool(arguments):
-        try:
-            result = _request_editor_query("open_editors")
-        except Exception as exc:
-            return f"Open editors query failed: {exc}"
-        return as_json(result)
-
-    def workspace_info_tool(arguments):
-        try:
-            result = _request_editor_query("workspace_info")
-        except Exception as exc:
-            return f"Workspace info query failed: {exc}"
-        return as_json(result)
-
-    def document_symbols_tool(arguments):
-        payload = _parse_editor_payload(arguments)
-        if not payload:
-            payload = {}
-        try:
-            result = _request_editor_query("document_symbols", payload)
-        except Exception as exc:
-            return f"Document symbols query failed: {exc}"
-        return as_json(result)
-
-    tools["editor.diagnostics"] = {
-        "run": diagnostics_tool,
-        "description": "Inspect VS Code diagnostics. Args: optional JSON with path/severity/limit or a file path string.",
-    }
-    tools["editor.open_editors"] = {
-        "run": open_editors_tool,
-        "description": "List currently visible editors and selections in VS Code.",
-    }
-    tools["editor.workspace_info"] = {
-        "run": workspace_info_tool,
-        "description": "Fetch workspace folders and active file from VS Code.",
-    }
-    tools["editor.document_symbols"] = {
-        "run": document_symbols_tool,
-        "description": "List document symbols for the active file or a provided path (JSON input: {\"path\": " + "..." + "}).",
-    }
+# ...existing code...
 
 
 def main():
@@ -439,7 +213,7 @@ def main():
 
     history = History()
     tools = _load_all_tools()
-    _inject_editor_tools(tools)
+    inject_editor_tools(tools, _request_editor_query, parse_editor_payload)
     seed_history_with_system_prompts(history, tools)
     debug_metrics = config.get("debug_metrics", False)
 
@@ -498,7 +272,7 @@ def main():
         if user_input == "!new":
             history = History()
             tools = _load_all_tools()
-            _inject_editor_tools(tools)
+            inject_editor_tools(tools, _request_editor_query, parse_editor_payload)
             seed_history_with_system_prompts(history, tools)
             aux_messages.append("[History cleared]")
             _send({"type": "assistant", "content": "\n".join(aux_messages), "debug": debug_lines})
@@ -525,11 +299,11 @@ def main():
         if mode == "ask":
             # Add user message and get direct LLM response, no planning or tool calls
             history.add_user_message(user_input)
-            response, elapsed = _collect_response(client, history)
+            response, elapsed = collect_response(client, history, tools)
             _send({"type": "assistant", "content": response, "debug": debug_lines})
             continue
         if user_input.startswith("!run "):
-            response_text = _handle_skill(user_input[5:].strip(), history, client, debug_metrics, debug_lines)
+            response_text = _handle_skill(user_input[5:].strip(), history, client, tools, debug_metrics, debug_lines)
             _send({"type": "assistant", "content": response_text, "debug": debug_lines})
             continue
         if user_input.startswith("!save_skill "):
@@ -605,7 +379,7 @@ def main():
             # Save current history state
             history_snapshot = history.snapshot()
             history.add_system_message(router_prompt)
-            router_response, _ = _collect_response(client, history)
+            router_response, _ = collect_response(client, history, tools)
             decision = router_response.strip().lower()
             # Restore history to before router prompt
             history.restore(history_snapshot)
@@ -619,7 +393,7 @@ def main():
                 f"Only plan up to {chain_limit} steps. Respond with the plan as a numbered list."
             )
             history.add_user_message(plan_prompt)
-            plan_response, plan_elapsed = _collect_response(client, history)
+            plan_response, plan_elapsed = collect_response(client, history, tools)
             if debug_metrics:
                 debug_lines.append(f"[DEBUG] Planning time: {plan_elapsed:.2f}s")
             steps = re.findall(r"\d+\.\s*(.*)", plan_response)
@@ -652,11 +426,11 @@ def main():
                         execute_prompt += f" Previous feedback: {feedback}"
 
                     history.add_user_message(execute_prompt)
-                    step_response, step_elapsed = _collect_response(client, history)
+                    step_response, step_elapsed = collect_response(client, history, tools)
                     if debug_metrics:
                         debug_lines.append(f"[DEBUG] Step {index} attempt {attempt_order} execution time: {step_elapsed:.2f}s")
 
-                    step_result, step_extras = _process_tool_calls(step_response, history, client, tools, config, debug_lines, debug_metrics)
+                    step_result, step_extras = process_tool_calls(step_response, history, client, tools, config, debug_lines, debug_metrics)
                     extras_payload.extend(step_extras)
                     last_outcome = step_result
 
@@ -665,7 +439,7 @@ def main():
                         f"Did this complete step {index} ('{step}')? Answer 'yes' if complete, otherwise answer 'no' and explain what remains."
                     )
                     history.add_user_message(verification_prompt)
-                    verification_response, verify_elapsed = _collect_response(client, history)
+                    verification_response, verify_elapsed = collect_response(client, history, tools)
                     if debug_metrics:
                         debug_lines.append(f"[DEBUG] Step {index} attempt {attempt_order} verification time: {verify_elapsed:.2f}s")
 
@@ -725,11 +499,11 @@ def main():
                 "Respond concisely for the user."
             )
             history.add_user_message(summary_prompt)
-            summary_response, summary_elapsed = _collect_response(client, history)
+            summary_response, summary_elapsed = collect_response(client, history, tools)
             if debug_metrics:
                 debug_lines.append(f"[DEBUG] Final summary time: {summary_elapsed:.2f}s")
 
-            final_summary, final_extras = _process_tool_calls(summary_response, history, client, tools, config, debug_lines, debug_metrics)
+            final_summary, final_extras = process_tool_calls(summary_response, history, client, tools, config, debug_lines, debug_metrics)
             extras_payload.extend(final_extras)
 
             _send({
@@ -740,10 +514,10 @@ def main():
             })
             continue
         else:
-            direct_response, direct_elapsed = _collect_response(client, history)
+            direct_response, direct_elapsed = collect_response(client, history, tools)
             if debug_metrics:
                 debug_lines.append(f"[DEBUG] Response time: {direct_elapsed:.2f}s")
-            final_response, tool_messages = _process_tool_calls(direct_response, history, client, tools, config, debug_lines, debug_metrics)
+            final_response, tool_messages = process_tool_calls(direct_response, history, client, tools, config, debug_lines, debug_metrics)
             extras_payload = aux_messages + tool_messages
             _send({"type": "assistant", "content": final_response, "debug": debug_lines, "extras": extras_payload})
 
