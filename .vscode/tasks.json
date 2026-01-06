@@ -1,0 +1,22 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "Run all tests with coverage",
+			"type": "shell",
+			"command": "pytest --cov=core --cov-report=term-missing tests",
+			"group": "test"
+		},
+		{
+			"label": "pytest append_long_term_entry",
+			"type": "shell",
+			"command": "pytest",
+			"args": [
+				"--maxfail=3",
+				"--disable-warnings",
+				"--cov=core/functions",
+				"tests/test_append_long_term_entry.py"
+			]
+		}
+	]
+}
