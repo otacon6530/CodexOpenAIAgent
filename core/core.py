@@ -3,7 +3,7 @@ import re
 import sys
 import time
 
-from core.api import OpenAIClient
+from core.functions.openai_client import OpenAIClient
 from core.functions.load_config import load_config
 from core.classes.History import History
 from core.functions.discover_mcp_tools import discover_mcp_tools

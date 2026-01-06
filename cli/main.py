@@ -9,13 +9,14 @@ from prompt_toolkit.patch_stdout import patch_stdout
 from prompt_toolkit.shortcuts import print_formatted_text
 from prompt_toolkit.styles import Style
 
+
 from core.api import OpenAIClient
 from core.config import load_config
-from core.history import ConversationHistory
 from core.mcp import discover_mcp_tools, run_mcp_tool
 from core.tool_loader import load_tools
 from core.skills import list_skills, load_skill, save_skill
 from core.system_prompt import seed_history_with_system_prompts
+from core.classes.History import ConversationHistory
 
 
 def _append_log(chat_log, style_name, message):
