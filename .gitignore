@@ -34,3 +34,12 @@ build/
 .coverage
 coverage.xml
 htmlcov/
+
+# Node.js/VSCodeExtension ignores
+VSCodeExtension/codex-chat/node_modules/
+VSCodeExtension/codex-chat/package-lock.json
+VSCodeExtension/codex-chat/npm-debug.log
+VSCodeExtension/codex-chat/.env
+VSCodeExtension/codex-chat/.vsce/
+VSCodeExtension/codex-chat/*.vsix
+VSCodeExtension/codex-chat/dist/

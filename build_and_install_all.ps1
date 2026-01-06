@@ -35,19 +35,37 @@ if (Test-Path ".\venv\Scripts\pytest.exe") {
 
 Write-Host "=== 4. Building VSCodeExtension ==="
 Set-Location VSCodeExtension\codex-chat
-if (!(Test-Path "node_modules")) {
-    Write-Host "Running npm install..."
-    npm install
+
+Write-Host "Cleaning node_modules and package-lock.json..."
+Remove-Item -Recurse -Force node_modules, package-lock.json -ErrorAction SilentlyContinue
+
+Write-Host "Running npm install..."
+npm install
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "npm install failed!"
+    exit 1
 }
+
 Write-Host "Running npm run build..."
 npm run build
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "npm run build failed!"
+    exit 1
+}
+
+Write-Host "Updating vsce..."
+npm install vsce@latest
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "vsce install failed!"
+    exit 1
+}
 
 Write-Host "Packaging extension with vsce..."
-if (!(Test-Path "node_modules\\.bin\\vsce.cmd")) {
-    Write-Host "Installing vsce locally..."
-    npm install vsce
-}
 .\node_modules\.bin\vsce.cmd package
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "vsce package failed!"
+    exit 1
+}
 
 $vsix = Get-ChildItem -Filter *.vsix | Select-Object -First 1
 if ($vsix) {
