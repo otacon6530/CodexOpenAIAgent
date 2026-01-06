@@ -8,4 +8,5 @@ def load_config():
         "model": os.environ.get("OPENAI_MODEL", "qwen3:8b"),
         "chain_limit": int(os.environ.get("LLM_CHAIN_LIMIT", os.environ.get("CHAIN_LIMIT", 25))),
         "debug_metrics": parse_bool(os.environ.get("LLM_DEBUG_METRICS"), default=True),
+        "log_level": os.environ.get("LOG_LEVEL", "DEBUG"),
     }
