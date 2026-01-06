@@ -1,18 +1,13 @@
-from __future__ import annotations
 
+from core.functions.default_token_estimator import default_token_estimator
+from core.functions.shorten import shorten
+from core.functions.make_entry_metadata import make_entry_metadata
+from core.functions.promote_to_long_term import promote_to_long_term
+from core.functions.append_long_term_entry import append_long_term_entry
 import copy
 from collections import defaultdict
 from datetime import datetime, timezone
 from typing import Any, Callable, Dict, Iterable, List, Optional
-
-
-def _default_token_estimator(text: str) -> int:
-    """Rough heuristic (characters / 4 + words) to estimate token usage."""
-    if not text:
-        return 0
-    chars = len(text)
-    words = len(text.split())
-    return max(1, int(chars / 4) + words)
 
 
 class ConversationHistory:
@@ -28,7 +23,7 @@ class ConversationHistory:
         self.token_window = token_window
         self.summary_token_budget = summary_token_budget
         self.max_long_term_entries = max_long_term_entries
-        self._estimate_tokens = token_estimator or _default_token_estimator
+        self._estimate_tokens = token_estimator or default_token_estimator
 
         self._messages: List[Dict[str, Any]] = []
         self._window_tokens = 0
@@ -137,29 +132,15 @@ class ConversationHistory:
         metadata: Optional[Dict[str, Any]] = None,
         turn_id: Optional[int],
     ) -> None:
-        topics_list = list(topics) if topics else []
-        tokens = self._estimate_tokens(content)
-        entry_metadata = {
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "tokens": tokens,
-        }
-        if topics_list:
-            entry_metadata["topics"] = topics_list
-        if metadata:
-            entry_metadata.update(metadata)
-        if turn_id is not None:
-            entry_metadata["turn_id"] = turn_id
-
+        entry_metadata = make_entry_metadata(content, topics, metadata, turn_id, self._estimate_tokens)
         message = {
             "role": role,
             "content": content,
             "metadata": entry_metadata,
         }
-
         self._messages.append(message)
-        self._window_tokens += tokens
+        self._window_tokens += entry_metadata["tokens"]
         self._enforce_window()
-
         if role != "assistant":
             self._refresh_running_summary()
 
@@ -170,67 +151,9 @@ class ConversationHistory:
             evicted = self._messages.pop(0)
             tokens = evicted.get("metadata", {}).get("tokens", self._estimate_tokens(evicted.get("content", "")))
             self._window_tokens = max(0, self._window_tokens - tokens)
-            self._promote_to_long_term(evicted)
+            promote_to_long_term(evicted, self._evicted_turn_buffer, self._is_turn_in_window, lambda msgs: append_long_term_entry(msgs, self.long_term_context, self.max_long_term_entries, self._estimate_tokens, self._refresh_running_summary))
 
-    def _promote_to_long_term(self, message: Dict[str, Any]) -> None:
-        metadata = message.get("metadata", {})
-        turn_id = metadata.get("turn_id")
-        if turn_id is None:
-            self._append_long_term_entry([message])
-            return
-
-        self._evicted_turn_buffer[turn_id].append(message)
-        if not self._is_turn_in_window(turn_id):
-            buffered = self._evicted_turn_buffer.pop(turn_id, [])
-            if buffered:
-                self._append_long_term_entry(buffered)
-
-    def _append_long_term_entry(self, messages: List[Dict[str, Any]]) -> None:
-        if not messages:
-            return
-
-        topics = set()
-        user_snippets: List[str] = []
-        assistant_snippets: List[str] = []
-        other_snippets: List[str] = []
-        turn_ids = set()
-
-        for msg in messages:
-            metadata = msg.get("metadata", {})
-            turn_val = metadata.get("turn_id")
-            if isinstance(turn_val, int):
-                turn_ids.add(turn_val)
-            for topic in metadata.get("topics", []) or []:
-                topics.add(topic)
-
-            snippet = self._shorten(msg.get("content", ""))
-            role = msg.get("role")
-            if role == "user":
-                user_snippets.append(snippet)
-            elif role == "assistant":
-                assistant_snippets.append(snippet)
-            else:
-                other_snippets.append(f"{role}: {snippet}")
-
-        segments: List[str] = []
-        if user_snippets:
-            segments.append("User: " + " | ".join(user_snippets))
-        if assistant_snippets:
-            segments.append("Assistant: " + " | ".join(assistant_snippets))
-        if other_snippets:
-            segments.extend(other_snippets)
-
-        entry = {
-            "summary": "; ".join(segments),
-            "turn_ids": sorted(turn_ids),
-            "topics": sorted(topics),
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-        }
-
-        self.long_term_context.append(entry)
-        if len(self.long_term_context) > self.max_long_term_entries:
-            self.long_term_context = self.long_term_context[-self.max_long_term_entries:]
-        self._refresh_running_summary()
+    # _promote_to_long_term and _append_long_term_entry are now handled by imported functions
 
     def _is_turn_in_window(self, turn_id: int) -> bool:
         for message in self._messages:
@@ -258,7 +181,7 @@ class ConversationHistory:
             summary_lines.append("Recent focus:")
             for msg in recent_messages[-4:]:
                 role = msg.get("role")
-                snippet = self._shorten(msg.get("content", ""), limit=160)
+                snippet = shorten(msg.get("content", ""), limit=160)
                 turn_id = msg.get("metadata", {}).get("turn_id")
                 if turn_id:
                     summary_lines.append(f"- ({role}, turn {turn_id}) {snippet}")
@@ -279,9 +202,4 @@ class ConversationHistory:
 
         self.running_summary = joined
 
-    @staticmethod
-    def _shorten(text: str, *, limit: int = 120) -> str:
-        stripped = text.strip()
-        if len(stripped) <= limit:
-            return stripped
-        return stripped[: limit - 3].rstrip() + "..."
+    # _shorten is now imported
