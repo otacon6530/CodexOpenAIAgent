@@ -15,11 +15,22 @@ Write-Host "=== 2. Installing Python dependencies ==="
 & .\venv\Scripts\python.exe -m pip install --upgrade pip
 & .\venv\Scripts\python.exe -m pip install -r requirements.txt
 
+
 Write-Host "=== 3. Running build.py (if present) ==="
 if (Test-Path "build.py") {
     python build.py
 } else {
     Write-Host "No build.py found, skipping."
+}
+
+Write-Host "=== 3b. Running Python tests (pytest) ==="
+$env:PYTHONPATH = "."
+if (Test-Path ".\venv\Scripts\pytest.exe") {
+    & .\venv\Scripts\pytest.exe tests
+} else {
+    Write-Host "pytest not found in venv, installing..."
+    & .\venv\Scripts\python.exe -m pip install pytest
+    & .\venv\Scripts\pytest.exe tests
 }
 
 Write-Host "=== 4. Building VSCodeExtension ==="
