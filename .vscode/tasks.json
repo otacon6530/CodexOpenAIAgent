@@ -108,6 +108,77 @@
 			"isBackground": false,
 			"problemMatcher": [],
 			"group": "test"
+		},
+		{
+			"label": "pytest with coverage (full, after new tests)",
+			"type": "shell",
+			"command": "G:/Dev/CodexOpenAIAgent/.venv/Scripts/python.exe",
+			"args": [
+				"-m",
+				"pytest",
+				"--cov=core/classes",
+				"--cov=core/functions",
+				"--cov-report=term-missing",
+				"--cov-branch"
+			],
+			"isBackground": false,
+			"problemMatcher": [],
+			"group": "test"
+		},
+		{
+			"label": "pytest with coverage (final, all branches)",
+			"type": "shell",
+			"command": "G:/Dev/CodexOpenAIAgent/.venv/Scripts/python.exe",
+			"args": [
+				"-m",
+				"pytest",
+				"--cov=core/classes",
+				"--cov=core/functions",
+				"--cov-report=term-missing",
+				"--cov-branch"
+			],
+			"isBackground": false,
+			"problemMatcher": [],
+			"group": "test"
+		},
+		{
+			"label": "pytest with coverage (openai_client final)",
+			"type": "shell",
+			"command": "G:/Dev/CodexOpenAIAgent/.venv/Scripts/python.exe",
+			"args": [
+				"-m",
+				"pytest",
+				"--cov=core/functions/openai_client.py",
+				"--cov-report=term-missing",
+				"--cov-branch"
+			],
+			"isBackground": false,
+			"problemMatcher": [],
+			"group": "test"
+		},
+		{
+			"label": "pytest all tests",
+			"type": "shell",
+			"command": "G:/Dev/CodexOpenAIAgent/.venv/Scripts/python.exe",
+			"args": [
+				"-m",
+				"pytest"
+			],
+			"isBackground": false,
+			"problemMatcher": [],
+			"group": "test"
+		},
+		{
+			"label": "pytest all tests (after patch)",
+			"type": "shell",
+			"command": "G:/Dev/CodexOpenAIAgent/.venv/Scripts/python.exe",
+			"args": [
+				"-m",
+				"pytest"
+			],
+			"isBackground": false,
+			"problemMatcher": [],
+			"group": "test"
 		}
 	]
 }

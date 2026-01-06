@@ -8,6 +8,20 @@ def test_load_agent_markdown_invalid_path():
     assert load_agent_markdown(123) is None
     assert load_agent_markdown("/unlikely/to/exist/agent.md") is None
 
+def test_load_agent_markdown_invalid_type():
+    # Not a string, bytes, or os.PathLike
+    class Dummy: pass
+    assert load_agent_markdown(Dummy()) is None
+
+def test_load_agent_markdown_open_exception(monkeypatch, tmp_path):
+    # File exists but open fails
+    file_path = tmp_path / "agent.md"
+    file_path.write_text("test")
+    def bad_open(*a, **k):
+        raise Exception("fail")
+    monkeypatch.setattr("builtins.open", bad_open)
+    assert load_agent_markdown(str(file_path)) is None
+
 def test_load_agent_markdown_open_exception(monkeypatch, tmp_path):
     # File exists but open fails
     file_path = tmp_path / "agent.md"

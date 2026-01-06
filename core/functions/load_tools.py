@@ -15,7 +15,10 @@ def load_tools():
         mod = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(mod)
         if hasattr(mod, "TOOLS"):
-            for tool in mod.TOOLS:
+            tools_attr = mod.TOOLS
+            if not isinstance(tools_attr, list):
+                continue
+            for tool in tools_attr:
                 name = tool.get("name")
                 run_fn = tool.get("run")
                 desc = tool.get("description", "")

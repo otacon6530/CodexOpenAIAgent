@@ -6,7 +6,7 @@ from typing import Any, Callable, Dict, Iterable, List, Optional
 
 def default_token_estimator(text: str) -> int:
 	"""Rough heuristic (characters / 4 + words) to estimate token usage."""
-	if not text:
+	if not text or not text.strip():
 		return 0
 	chars = len(text)
 	words = len(text.split())
