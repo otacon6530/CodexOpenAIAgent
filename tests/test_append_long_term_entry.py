@@ -42,3 +42,15 @@ def test_append_long_term_entry_basic():
     assert entry["turn_ids"] == [1]
     assert set(entry["topics"]) == {"greet", "meta"}
     assert "timestamp" in entry
+
+def test_append_long_term_entry_other_role():
+    messages = [
+        {"role": "other", "content": "zzz", "metadata": {"turn_id": 3}}
+    ]
+    long_term_context = []
+    called = {"refreshed": False}
+    def fake_refresh():
+        called["refreshed"] = True
+    append_long_term_entry(messages, long_term_context, 10, lambda x: 1, fake_refresh)
+    assert "other" in long_term_context[-1]["summary"].lower()
+    assert called["refreshed"]

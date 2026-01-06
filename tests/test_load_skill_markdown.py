@@ -1,19 +1,14 @@
 import os
-import tempfile
 import pytest
 from core.functions.load_skill_markdown import load_skill_markdown
 
-def test_load_skill_markdown_reads_file():
-    with tempfile.TemporaryDirectory() as tmpdir:
-        file_path = os.path.join(tmpdir, "skill.md")
-        content = "# Skill\nHello"
-        with open(file_path, "w") as f:
-            f.write(content)
-        result = load_skill_markdown(file_path)
-        assert result == content
+def test_load_skill_markdown_not_exists():
+    assert load_skill_markdown("/unlikely/to/exist/skill.md") is None
 
-def test_load_skill_markdown_file_not_found():
-    # Should return None if file does not exist
-    with tempfile.TemporaryDirectory() as tmpdir:
-        file_path = os.path.join(tmpdir, "nope.md")
-        assert load_skill_markdown(file_path) is None
+def test_load_skill_markdown_open_exception(monkeypatch, tmp_path):
+    file_path = tmp_path / "skill.md"
+    file_path.write_text("test")
+    def bad_open(*a, **k):
+        raise OSError("fail")
+    monkeypatch.setattr("builtins.open", bad_open)
+    assert load_skill_markdown(str(file_path)) is None

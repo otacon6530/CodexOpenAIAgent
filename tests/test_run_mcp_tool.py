@@ -1,18 +1,16 @@
+import pytest
 from core.functions.run_mcp_tool import run_mcp_tool
 
-def test_run_mcp_tool(monkeypatch):
-    def fake_post(*a, **k):
-        class Resp:
-            def raise_for_status(self): pass
-            def json(self): return {"result": "ok"}
-        return Resp()
-    import core.functions.run_mcp_tool as mod
-    monkeypatch.setattr(mod.requests, "post", fake_post)
-    result = run_mcp_tool("foo", {})
-    assert result == "ok"
+def test_run_mcp_tool_success(monkeypatch):
+    class Resp:
+        def raise_for_status(self): pass
+        def json(self): return {"result": "ok"}
+    monkeypatch.setattr("requests.post", lambda *a, **k: Resp())
+    assert run_mcp_tool("foo", {}) == "ok"
 
-    def test_run_mcp_tool_error(monkeypatch):
-        monkeypatch.setattr("requests.post", lambda *a, **k: (_ for _ in ()).throw(Exception("fail")))
-        from core.functions import run_mcp_tool
-        result = run_mcp_tool.run_mcp_tool("foo", {})
-        assert result.startswith("MCP tool error:")
+def test_run_mcp_tool_error(monkeypatch):
+    def fail_post(*a, **k):
+        raise Exception("fail")
+    monkeypatch.setattr("requests.post", fail_post)
+    result = run_mcp_tool("foo", {})
+    assert result.startswith("MCP tool error:")

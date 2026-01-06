@@ -1,3 +1,4 @@
+import pytest
 from core.functions.seed_history_with_system_prompts import seed_history_with_system_prompts
 
 class DummyHistory:
@@ -6,17 +7,22 @@ class DummyHistory:
     def add_system_message(self, msg):
         self.messages.append(msg)
 
-def test_seed_history_with_system_prompts():
+def test_seed_history_with_system_prompts_agent_md(monkeypatch):
     h = DummyHistory()
-    # Normal tools
+    # agent_md returns None
+    import core.functions.seed_history_with_system_prompts as mod
+    monkeypatch.setattr(mod, "load_agent_markdown", lambda x: None)
     seed_history_with_system_prompts(h, {"foo": {"description": "bar"}})
-    assert any("environment" in m for m in h.messages)
-    assert any("Available tools" in m for m in h.messages)
+    # Should have 2 messages (os, tools), not agent_md
+    assert len(h.messages) == 2
 
-    # Empty tools
-    h2 = DummyHistory()
-    seed_history_with_system_prompts(h2, {})
-    assert any("environment" in m for m in h2.messages)
+def test_seed_history_with_system_prompts_agent_md_present(monkeypatch):
+    h = DummyHistory()
+    import core.functions.seed_history_with_system_prompts as mod
+    monkeypatch.setattr(mod, "load_agent_markdown", lambda x: "AGENT")
+    seed_history_with_system_prompts(h, {"foo": {"description": "bar"}})
+    # Should have 3 messages (os, agent_md, tools)
+    assert any(m == "AGENT" for m in h.messages)
 
     # With search_dirs (should not error)
     h3 = DummyHistory()

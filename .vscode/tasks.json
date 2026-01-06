@@ -17,6 +17,97 @@
 				"--cov=core/functions",
 				"tests/test_append_long_term_entry.py"
 			]
+		},
+		{
+			"label": "pytest with coverage",
+			"type": "shell",
+			"command": "G:/Dev/CodexOpenAIAgent/.venv/Scripts/python.exe",
+			"args": [
+				"-m",
+				"pytest",
+				"--cov=core/classes",
+				"--cov=core/functions",
+				"--cov-report=term-missing"
+			],
+			"isBackground": false,
+			"problemMatcher": [],
+			"group": "test"
+		},
+		{
+			"label": "pytest with coverage",
+			"type": "shell",
+			"command": "G:/Dev/CodexOpenAIAgent/.venv/Scripts/python.exe",
+			"args": [
+				"-m",
+				"pytest",
+				"--cov=core/classes",
+				"--cov=core/functions",
+				"--cov-report=term-missing"
+			],
+			"isBackground": false,
+			"problemMatcher": [],
+			"group": "test"
+		},
+		{
+			"label": "pytest with coverage",
+			"type": "shell",
+			"command": "G:/Dev/CodexOpenAIAgent/.venv/Scripts/python.exe",
+			"args": [
+				"-m",
+				"pytest",
+				"--cov=core/classes",
+				"--cov=core/functions",
+				"--cov-report=term-missing"
+			],
+			"isBackground": false,
+			"problemMatcher": [],
+			"group": "test"
+		},
+		{
+			"label": "pytest with coverage",
+			"type": "shell",
+			"command": "G:/Dev/CodexOpenAIAgent/.venv/Scripts/python.exe",
+			"args": [
+				"-m",
+				"pytest",
+				"--cov=core/classes",
+				"--cov=core/functions",
+				"--cov-report=term-missing"
+			],
+			"isBackground": false,
+			"problemMatcher": [],
+			"group": "test"
+		},
+		{
+			"label": "pytest with coverage",
+			"type": "shell",
+			"command": "G:/Dev/CodexOpenAIAgent/.venv/Scripts/python.exe",
+			"args": [
+				"-m",
+				"pytest",
+				"--cov=core/classes",
+				"--cov=core/functions",
+				"--cov-report=term-missing"
+			],
+			"isBackground": false,
+			"problemMatcher": [],
+			"group": "test"
+		},
+		{
+			"label": "pytest with coverage (full report)",
+			"type": "shell",
+			"command": "G:/Dev/CodexOpenAIAgent/.venv/Scripts/python.exe",
+			"args": [
+				"-m",
+				"pytest",
+				"--cov=core/classes",
+				"--cov=core/functions",
+				"--cov-report=term-missing",
+				"--cov-branch"
+			],
+			"isBackground": false,
+			"problemMatcher": [],
+			"group": "test"
 		}
 	]
 }
