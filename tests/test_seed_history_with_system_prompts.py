@@ -13,8 +13,8 @@ def test_seed_history_with_system_prompts_agent_md(monkeypatch):
     import core.functions.seed_history_with_system_prompts as mod
     monkeypatch.setattr(mod, "load_agent_markdown", lambda x: None)
     seed_history_with_system_prompts(h, {"foo": {"description": "bar"}})
-    # Should have 2 messages (os, tools), not agent_md
-    assert len(h.messages) == 2
+    # Should have 1 message (os), not agent_md or tools
+    assert len(h.messages) == 1
 
 def test_seed_history_with_system_prompts_agent_md_present(monkeypatch):
     h = DummyHistory()
