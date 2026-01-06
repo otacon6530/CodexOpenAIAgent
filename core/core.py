@@ -1,4 +1,6 @@
 import json
+from core.classes.Logger import Logger
+Logger().info("core.py started")
 import re
 import sys
 import time

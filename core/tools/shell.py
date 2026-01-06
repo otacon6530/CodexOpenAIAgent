@@ -22,6 +22,7 @@ metadata = {
     'description': shell_desc
 }
 
+
 def run(args):
     """
     Run a shell command and return its output or error.
@@ -38,3 +39,12 @@ def run(args):
         return output or '(No output)'
     except Exception as e:
         return f'Exception: {e}'
+
+# For tool auto-discovery
+TOOLS = [
+    {
+        'name': metadata['name'],
+        'description': metadata['description'],
+        'run': run,
+    }
+]
