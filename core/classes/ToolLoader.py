@@ -1,4 +1,4 @@
-from core.tool_loader import load_tools
+from core.functions.load_tools import load_tools
 
 class ToolLoader:
     def load(self):

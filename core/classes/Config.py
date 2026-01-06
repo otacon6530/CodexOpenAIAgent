@@ -1,4 +1,4 @@
-from core.config import load_config
+from core.functions.load_config import load_config
 
 class Config:
     def __init__(self):

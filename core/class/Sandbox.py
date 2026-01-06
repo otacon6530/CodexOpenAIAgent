@@ -1,4 +1,4 @@
-from core.sandbox import is_safe_path
+from core.functions.is_safe_path import is_safe_path
 
 class Sandbox:
     def __init__(self, base_dir=None):
