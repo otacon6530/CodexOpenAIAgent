@@ -33,6 +33,13 @@ if (Test-Path ".\venv\Scripts\pytest.exe") {
     & .\venv\Scripts\pytest.exe tests
 }
 
+Write-Host "=== 3c. Running integration test for core.core ==="
+& .\venv\Scripts\python.exe tests\test_integration_core.py
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "Integration test for core.core failed!"
+    exit 1
+}
+
 Write-Host "=== 4. Building VSCodeExtension ==="
 Set-Location VSCodeExtension\codex-chat
 
