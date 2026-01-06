@@ -10,3 +10,9 @@ def test_discover_mcp_tools(monkeypatch):
     monkeypatch.setattr(mod.requests, "get", fake_get)
     tools = discover_mcp_tools()
     assert "foo" in tools
+
+def test_discover_mcp_tools_error(monkeypatch):
+    monkeypatch.setattr("requests.get", lambda *a, **k: (_ for _ in ()).throw(Exception("fail")))
+    from core.functions import discover_mcp_tools
+    result = discover_mcp_tools.discover_mcp_tools()
+    assert result == {}

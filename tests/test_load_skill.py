@@ -11,3 +11,8 @@ def test_load_skill(tmp_path, monkeypatch):
     monkeypatch.setattr(mod, "SKILLS_DIR", str(skills_dir))
     result = load_skill("foo")
     assert result["name"] == "foo"
+
+def test_load_skill_not_found(monkeypatch, tmp_path):
+    import core.functions.load_skill as mod
+    monkeypatch.setattr(mod, "SKILLS_DIR", str(tmp_path / "nope"))
+    assert mod.load_skill("foo") is None

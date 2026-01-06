@@ -1,4 +1,4 @@
-from core.api import OpenAIClient
+from core.functions.openai_client import OpenAIClient
 
 class API:
     def __init__(self, config):

@@ -10,3 +10,9 @@ def test_run_mcp_tool(monkeypatch):
     monkeypatch.setattr(mod.requests, "post", fake_post)
     result = run_mcp_tool("foo", {})
     assert result == "ok"
+
+    def test_run_mcp_tool_error(monkeypatch):
+        monkeypatch.setattr("requests.post", lambda *a, **k: (_ for _ in ()).throw(Exception("fail")))
+        from core.functions import run_mcp_tool
+        result = run_mcp_tool.run_mcp_tool("foo", {})
+        assert result.startswith("MCP tool error:")
