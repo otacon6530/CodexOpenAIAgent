@@ -5,7 +5,7 @@ import time
 
 from core.api import OpenAIClient
 from core.config import load_config
-from core.history import ConversationHistory
+from core.classes.History import History
 from core.mcp import discover_mcp_tools, run_mcp_tool
 from core.skills import list_skills, load_skill, save_skill
 from core.system_prompt import seed_history_with_system_prompts
@@ -362,7 +362,7 @@ def _inject_editor_tools(tools):
 def main():
     config = load_config()
     client = OpenAIClient(config)
-    history = ConversationHistory()
+    history = History()
     tools = _load_all_tools()
     _inject_editor_tools(tools)
     seed_history_with_system_prompts(history, tools)
@@ -418,7 +418,7 @@ def main():
             _send({"type": "assistant", "content": "\n".join(aux_messages), "debug": debug_lines})
             continue
         if user_input == "!new":
-            history = ConversationHistory()
+            history = History()
             tools = _load_all_tools()
             _inject_editor_tools(tools)
             seed_history_with_system_prompts(history, tools)
