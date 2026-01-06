@@ -4,6 +4,9 @@ class Config:
     def __init__(self):
         self.config = load_config()
 
+    def __getitem__(self, key):
+        return self.config[key]
+
     def get(self, key, default=None):
         return self.config.get(key, default)
 

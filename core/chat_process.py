@@ -360,7 +360,8 @@ def _inject_editor_tools(tools):
 
 
 def main():
-    config = load_config()
+    from core.classes.Config import Config
+    config = Config()
     client = OpenAIClient(config)
     history = History()
     tools = _load_all_tools()
