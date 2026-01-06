@@ -323,7 +323,7 @@
                     console.log('[Codex Chat][SYSTEM]', message.message);
                 }
                 showSpinner(false);
-                setSendEnabled(true);
+                // Do NOT re-enable send button here; only after assistant response
                 break;
             case 'status':
                 setStatus(message.level || 'info', message.message || '');
