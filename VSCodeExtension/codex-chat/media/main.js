@@ -301,10 +301,8 @@
                 setSendEnabled(true);
                 break;
             case 'system':
-                if (typeof message.message === 'string' && message.message.includes('[DEBUG]')) {
-                    console.log('[Codex Chat][DEBUG]', message.message);
-                } else {
-                    appendEntry('system', message.message || '');
+                if (typeof message.message === 'string') {
+                    console.log('[Codex Chat][SYSTEM]', message.message);
                 }
                 showSpinner(false);
                 setSendEnabled(true);

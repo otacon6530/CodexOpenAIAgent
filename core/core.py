@@ -143,7 +143,8 @@ def _process_tool_calls(response_text, history, client, tools, config, debug_lin
 
     cleaned = TOOL_PATTERN.sub('', text)
     # Prioritize tool output as main message, append LLM summary as extras
-    main_message = first_tool_output if first_tool_output is not None else cleaned
+    # Always send the LLM summary as the assistant's reply after a tool call
+    main_message = text if text else (first_tool_output if first_tool_output is not None else cleaned)
     extras = tool_messages + llm_summaries
     return main_message, extras
 
