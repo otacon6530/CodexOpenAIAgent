@@ -58,6 +58,7 @@
     const spinnerEl = document.getElementById('spinner');
     const chatLog = document.getElementById('chatLog');
     const messageInput = document.getElementById('messageInput');
+    const modeSelect = document.getElementById('modeSelect');
     const sendButton = document.getElementById('sendButton');
     const listToolsButton = document.getElementById('listTools');
     const newSessionButton = document.getElementById('newSession');
@@ -109,18 +110,19 @@
         if (!text) {
             return;
         }
-        appendEntry('user', text);
+        const mode = modeSelect ? modeSelect.value : 'default';
+        appendEntry('user', text + (mode === 'plan' ? ' (Plan mode)' : ''));
         // Add a temporary 'thinking' entry in the chat
         const thinkingId = 'thinking-entry';
         const thinkingDiv = document.createElement('div');
         thinkingDiv.className = 'chat-entry assistant thinking';
         thinkingDiv.id = thinkingId;
-        thinkingDiv.innerHTML = `<span class="chat-label">Assistant:</span> <span class="spinner-inline"></span> <span class="thinking-label">Thinking…</span>`;
+        thinkingDiv.innerHTML = `<span class=\"chat-label\">Assistant:</span> <span class=\"spinner-inline\"></span> <span class=\"thinking-label\">Thinking…</span>`;
         chatLog.appendChild(thinkingDiv);
         chatLog.scrollTop = chatLog.scrollHeight;
         showSpinner(true);
         setSendEnabled(false);
-        vscode.postMessage({ type: 'send', content: text });
+        vscode.postMessage({ type: 'send', content: text, mode });
         // Store in history, max 10
         messageHistory.push(text);
         if (messageHistory.length > 10) messageHistory.shift();

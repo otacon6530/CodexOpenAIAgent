@@ -93,7 +93,6 @@ class ChatPanel {
             <span id="status" class="status">Connecting…</span>
             <span id="spinner" class="spinner" style="display:none" aria-label="Loading"></span>
             <div class="actions">
-                
                 <button id="listTools" disabled>List Tools</button>
                 <button id="newSession" disabled>New Session</button>
                 <button id="reconnect">Reconnect</button>
@@ -103,6 +102,11 @@ class ChatPanel {
             <section class="chat" id="chatLog"></section>
         </main>
         <footer class="composer">
+            <select id="modeSelect" style="margin-right: 0.5em;">
+                <option value="default" selected>Default</option>
+                <option value="plan">Plan</option>
+                <option value="ask">Ask</option>
+            </select>
             <input type="text" id="messageInput" placeholder="Message the Codex agent" />
             <button id="sendButton" disabled>Send</button>
         </footer>
@@ -170,30 +174,32 @@ class ChatPanel {
         }
 
         switch (message.type) {
-                case 'editor_query':
+            case 'editor_query':
                 console.log('[Codex Chat] Received editor_query request', message);
-                    this.handleEditorQuery(message).catch((error) => {
-                        const errMsg = error && error.message ? error.message : String(error);
-                        if (this.bridge && this.bridge.isRunning) {
-                            this.bridge.send({ type: 'editor_query_response', id: message.id, error: errMsg }).catch(() => undefined);
-                        }
-                        this.postToWebview({ type: 'status', level: 'error', message: `Failed to service editor query: ${errMsg}` });
+                this.handleEditorQuery(message).catch((error) => {
+                    const errMsg = error && error.message ? error.message : String(error);
+                    if (this.bridge && this.bridge.isRunning) {
+                        this.bridge.send({ type: 'editor_query_response', id: message.id, error: errMsg }).catch(() => undefined);
+                    }
+                    this.postToWebview({ type: 'status', level: 'error', message: `Failed to service editor query: ${errMsg}` });
                     console.error('[Codex Chat] editor_query failed', errMsg);
-                    });
-                    break;
-            case 'send':
+                });
+                break;
+            case 'send': {
                 if (!this.bridge || !this.bridge.isRunning) {
                     this.postToWebview({ type: 'status', level: 'error', message: 'Backend is not running. Click reconnect.' });
                     return;
                 }
+                const mode = message.mode || 'default';
                 if (message.content && message.content.trim().length > 0) {
                     try {
-                        await this.bridge.send({ type: 'message', content: message.content });
+                        await this.bridge.send({ type: 'message', content: message.content, mode });
                     } catch (error) {
                         this.postToWebview({ type: 'status', level: 'error', message: `Failed to send message: ${error.message || error}` });
                     }
                 }
                 break;
+            }
             case 'shell_approval_response':
                 // Relay shell approval response from webview to backend
                 if (this.bridge && this.bridge.isRunning) {

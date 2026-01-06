@@ -419,6 +419,7 @@ def main():
             continue
         if action == "message":
             user_input = request.get("content", "")
+            mode = request.get("mode", "default")
             if not user_input:
                 _send({"type": "error", "content": "Empty message."})
                 continue
@@ -467,6 +468,18 @@ def main():
             if not user_input:
                 _send({"type": "assistant", "content": "[Force planning mode enabled for next request. Please enter your request after /plan.]"})
                 continue
+
+        # If mode is 'plan', force planning for this request
+        if mode == "plan":
+            force_plan_mode = True
+
+        # If mode is 'ask', skip planning and tool use, force direct answer
+        if mode == "ask":
+            # Add user message and get direct LLM response, no planning or tool calls
+            history.add_user_message(user_input)
+            response, elapsed = _collect_response(client, history)
+            _send({"type": "assistant", "content": response, "debug": debug_lines})
+            continue
         if user_input.startswith("!run "):
             response_text = _handle_skill(user_input[5:].strip(), history, client, debug_metrics, debug_lines)
             _send({"type": "assistant", "content": response_text, "debug": debug_lines})
