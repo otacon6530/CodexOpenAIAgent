@@ -37,7 +37,7 @@ class PythonBridge {
 
         return new Promise((resolve, reject) => {
             try {
-                const child = spawn(pythonPath || 'python', ['-u', '-m', 'core.chat_process'], {
+                const child = spawn(pythonPath || 'python', ['-u', '-m', 'core.core'], {
                     cwd: workspacePath,
                     stdio: ['pipe', 'pipe', 'pipe'],
                 });
