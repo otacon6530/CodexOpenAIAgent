@@ -1,3 +1,17 @@
+
+#modeSelect {
+    padding: 0.5rem;
+    border: 1px solid var(--vscode-editorGroup-border);
+    border-radius: 3px;
+    background: var(--vscode-input-background);
+    color: var(--vscode-input-foreground);
+    margin-right: 0.5em;
+    font-size: 1em;
+}
+
+#modeSelect:focus {
+    outline: 1px solid var(--vscode-focusBorder);
+}
 .system-group {
     margin-bottom: 0.75rem;
     border-left: 3px solid #bbb;
