@@ -1,6 +1,7 @@
 import json
 from core.classes.Logger import Logger
-Logger().info("core.py started")
+logger = Logger()
+logger.info("core.py started")
 import re
 import sys
 import time
@@ -38,7 +39,12 @@ def _format_tools(tools):
 def _collect_response(client, history, on_chunk=None):
     start = time.time()
     response = ""
-    for chunk in client.stream_chat(history.get_messages()):
+    # Only include system/tool instructions once, and last 3 turns for efficiency
+    from core.functions.build_tools_prompt import build_tools_prompt
+    tool_instructions = build_tools_prompt(load_tools())
+    messages = history.get_efficient_prompt(include_system=True, recent_turns=3, tool_instructions=tool_instructions)
+    logger.info(f"LLM PROMPT: {json.dumps(messages)}")
+    for chunk in client.stream_chat(messages):
         response += chunk
         if on_chunk:
             on_chunk(chunk)
@@ -136,6 +142,7 @@ def _send(payload):
         debug_message = json.dumps(payload)
     except Exception:
         debug_message = str(payload)
+    logger.info(f"SEND: {debug_message}")
     print(f"[DEBUG] Sending to extension: {debug_message}", file=sys.stderr)
     sys.stdout.write(json.dumps(payload) + "\n")
     sys.stdout.flush()
@@ -150,7 +157,9 @@ def _read_raw_message():
         if not line:
             continue
         try:
-            return json.loads(line)
+            msg = json.loads(line)
+            logger.info(f"RECEIVE: {json.dumps(msg)}")
+            return msg
         except json.JSONDecodeError:
             _send({"type": "error", "content": "Invalid JSON input."})
 
@@ -172,6 +181,7 @@ def _pop_buffered_message(expected_type=None, expected_id=None):
 def _next_message():
     buffered = _pop_buffered_message()
     if buffered is not None:
+        logger.info(f"RECEIVE (buffered): {json.dumps(buffered)}")
         return buffered
     return _read_raw_message()
 
@@ -184,6 +194,7 @@ def _wait_for_message(expected_type, expected_id=None, timeout=None):
 
     buffered = _pop_buffered_message(expected_type, expected_id)
     if buffered is not None:
+        logger.info(f"RECEIVE (wait/buffered): {json.dumps(buffered)}")
         return buffered
 
     while True:

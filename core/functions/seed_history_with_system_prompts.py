@@ -7,4 +7,4 @@ def seed_history_with_system_prompts(history, tools, search_dirs=None):
     agent_md = load_agent_markdown(search_dirs)
     if agent_md:
         history.add_system_message(agent_md)
-    history.add_system_message(build_tools_prompt(tools))
+    # Do NOT add tool descriptions to persistent history. Tool prompt will be injected at prompt build time only.

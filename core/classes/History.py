@@ -10,6 +10,24 @@ from core.functions.promote_to_long_term import promote_to_long_term
 from core.functions.append_long_term_entry import append_long_term_entry
 
 class ConversationHistory:
+        def get_efficient_prompt(self, *, include_system=True, recent_turns=3, tool_instructions=None):
+            """
+            Build an efficient prompt for the LLM:
+            - Only include system instructions from persistent history (never tool descriptions)
+            - Only include the last N user/assistant turns (default 3)
+            - Optionally append tool_instructions as a system message if provided (not stored in history)
+            """
+            prompt = []
+            # Only add system messages that are NOT tool descriptions
+            for m in self._messages:
+                if m["role"] == "system" and not ("Available tools:" in m["content"]):
+                    prompt.append(m)
+            if tool_instructions:
+                prompt.append({"role": "system", "content": tool_instructions})
+            # Only include the last N user/assistant turns (excluding system)
+            non_system = [m for m in self._messages if m["role"] != "system"]
+            prompt.extend(non_system[-recent_turns*2:])
+            return prompt
     """Tracks short-term messages with a token-aware window and long-term summaries."""
 
     def __init__(
