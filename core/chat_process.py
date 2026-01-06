@@ -513,12 +513,12 @@ def main():
                 "Reply with only one word: plan or respond"
             )
             # Save current history state
-            orig_history = [list(block) for block in history.memory]
+            history_snapshot = history.snapshot()
             history.add_user_message(router_prompt)
             router_response, _ = _collect_response(client, history)
             decision = router_response.strip().lower()
             # Restore history to before router prompt
-            history.memory = orig_history
+            history.restore(history_snapshot)
 
         if "plan" in decision:
             chain_limit = max(1, int(config.get("chain_limit", 25)))
