@@ -1,21 +1,38 @@
+
 import json
 from core.classes.Logger import Logger
 logger = Logger()
 logger.info("core.py started")
-import re
-import sys
-import time
-
-from core.functions.openai_client import OpenAIClient
-from core.functions.load_config import load_config
-from core.classes.History import History
-from core.functions.discover_mcp_tools import discover_mcp_tools
-from core.functions.run_mcp_tool import run_mcp_tool
-from core.functions.list_skills import list_skills
-from core.functions.load_skill import load_skill
-from core.functions.save_skill import save_skill
-from core.functions.seed_history_with_system_prompts import seed_history_with_system_prompts
-from core.functions.load_tools import load_tools
+try:
+    import re
+    logger.info("imported re")
+    import sys
+    logger.info("imported sys")
+    import time
+    logger.info("imported time")
+    from core.functions.openai_client import OpenAIClient
+    logger.info("imported OpenAIClient")
+    from core.functions.load_config import load_config
+    logger.info("imported load_config")
+    from core.classes.History import History
+    logger.info("imported History")
+    from core.functions.discover_mcp_tools import discover_mcp_tools
+    logger.info("imported discover_mcp_tools")
+    from core.functions.run_mcp_tool import run_mcp_tool
+    logger.info("imported run_mcp_tool")
+    from core.functions.list_skills import list_skills
+    logger.info("imported list_skills")
+    from core.functions.load_skill import load_skill
+    logger.info("imported load_skill")
+    from core.functions.save_skill import save_skill
+    logger.info("imported save_skill")
+    from core.functions.seed_history_with_system_prompts import seed_history_with_system_prompts
+    logger.info("imported seed_history_with_system_prompts")
+    from core.functions.load_tools import load_tools
+    logger.info("imported load_tools")
+except Exception as e:
+    logger.error(f"Exception during imports: {e}")
+    raise
 
 TOOL_PATTERN = re.compile(r"<tool:([a-zA-Z0-9_.\-]+)>(.*?)</tool>", re.DOTALL)
 _PENDING_MESSAGES = []
@@ -161,9 +178,12 @@ def _send(payload):
 
 
 def _read_raw_message():
+    logger.info("_read_raw_message: waiting for input on stdin...")
     while True:
         line = sys.stdin.readline()
+        logger.info(f"_read_raw_message: read line: {repr(line)}")
         if not line:
+            logger.info("_read_raw_message: EOF on stdin, returning None")
             return None
         line = line.strip()
         if not line:
@@ -173,6 +193,7 @@ def _read_raw_message():
             logger.info(f"RECEIVE: {json.dumps(msg)}")
             return msg
         except json.JSONDecodeError:
+            logger.info(f"_read_raw_message: Invalid JSON input: {line}")
             _send({"type": "error", "content": "Invalid JSON input."})
 
 
@@ -191,10 +212,12 @@ def _pop_buffered_message(expected_type=None, expected_id=None):
 
 
 def _next_message():
+    logger.info("_next_message: checking for buffered message...")
     buffered = _pop_buffered_message()
     if buffered is not None:
         logger.info(f"RECEIVE (buffered): {json.dumps(buffered)}")
         return buffered
+    logger.info("_next_message: no buffered message, calling _read_raw_message()")
     return _read_raw_message()
 
 
@@ -388,9 +411,32 @@ def _inject_editor_tools(tools):
 
 
 def main():
+    logger.info("main: entered main() function")
+    
+    try:
+        logger.info("main: importing Config")
+        from core.classes.Config import Config
+        logger.info("main: imported Config")
+    except Exception as e:
+        logger.error(f"Exception importing Config: {e}")
+        raise
+    logger.info("main: starting Codex backend main loop")
     from core.classes.Config import Config
+
     config = Config()
     client = OpenAIClient(config)
+    # Test LLM connection before ready
+    try:
+        # Minimal prompt to test connection
+        test_messages = [{"role": "system", "content": "ping"}]
+        for _ in client.stream_chat(test_messages):
+            break  # Only need to check connection, not full response
+        llm_ok = True
+    except Exception as e:
+        logger.error(f"LLM connection failed: {e}")
+        _send({"type": "error", "content": f"LLM connection failed: {e}"})
+        return
+
     history = History()
     tools = _load_all_tools()
     _inject_editor_tools(tools)
@@ -399,11 +445,13 @@ def main():
 
     _send({"type": "ready", "debug": debug_metrics})
 
-
     force_plan_mode = False
     while True:
+        logger.info("main: waiting for next message from extension...")
         request = _next_message()
+        logger.info(f"main: received message: {repr(request)}")
         if request is None:
+            logger.info("main: request is None, breaking main loop")
             break
 
         action = request.get("type")

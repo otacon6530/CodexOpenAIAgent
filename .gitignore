@@ -2,3 +2,35 @@ venv
 VSCodeExtension/codex-chat/codex-chat-0.1.0.vsix
 log.txt
 test.txt
+venv/
+.venv/
+__pycache__/
+*.py[cod]
+*~
+*.pyo
+*.pyd
+*.log
+*.swp
+*.bak
+*.tmp
+*.DS_Store
+Thumbs.db
+
+# VS Code settings and history
+.history/
+.vscode/
+.vscode-user/
+.vscode-user*
+.vscode-user/**
+
+# Python egg and build
+*.egg-info/
+dist/
+build/
+
+# Ignore test cache
+.pytest_cache/
+.mypy_cache/
+.coverage
+coverage.xml
+htmlcov/
