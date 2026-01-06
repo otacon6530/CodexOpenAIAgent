@@ -59,7 +59,6 @@
     const chatLog = document.getElementById('chatLog');
     const messageInput = document.getElementById('messageInput');
     const sendButton = document.getElementById('sendButton');
-    const toggleDebugButton = document.getElementById('toggleDebug');
     const listToolsButton = document.getElementById('listTools');
     const newSessionButton = document.getElementById('newSession');
     const reconnectButton = document.getElementById('reconnect');
@@ -96,7 +95,6 @@
             historyIndex = -1;
         }
     });
-    toggleDebugButton.addEventListener('click', () => vscode.postMessage({ type: 'toggleDebug' }));
     listToolsButton.addEventListener('click', () => vscode.postMessage({ type: 'listTools' }));
     newSessionButton.addEventListener('click', () => vscode.postMessage({ type: 'newSession' }));
     reconnectButton.addEventListener('click', () => vscode.postMessage({ type: 'reconnect' }));
@@ -246,72 +244,16 @@
     // let systemGroup = null; // Already declared at the top
     let lastSystemGroup = null;
     function appendEntry(kind, text) {
-        if (kind === 'system') {
-            // Group consecutive system messages
-            let group = lastSystemGroup;
-            // If no open group or last message was not system, start a new group
-            if (!group || group._closed || group._lastNonSystem) {
-                group = document.createElement('div');
-                group.className = 'system-group collapsed';
-                // Group preview
-                const groupPreview = document.createElement('div');
-                groupPreview.className = 'system-group-preview';
-                groupPreview.textContent = '[System] (multiple messages)';
-                groupPreview.onclick = function () {
-                    const collapsed = group.classList.toggle('collapsed');
-                    groupPreview.classList.toggle('expanded', !collapsed);
-                    Array.from(group.querySelectorAll('.system-message-wrapper')).forEach(w => {
-                        w.style.display = collapsed ? 'none' : '';
-                    });
-                };
-                group.appendChild(groupPreview);
-                group._closed = false;
-                group._lastNonSystem = false;
-                chatLog.appendChild(group);
-                lastSystemGroup = group;
-            }
-            // Individual system message
-            const wrapper = document.createElement('div');
-            wrapper.className = 'system-message-wrapper';
-            // Collapsible system message
-            wrapper.classList.add('collapsible-system');
-            const previewText = (text || '').split('\n')[0].slice(0, 60) + ((text || '').length > 60 ? '...' : '');
-            const preview = document.createElement('div');
-            preview.className = 'system-message-preview';
-            preview.innerHTML = `<span class=\"chat-label\">${labelForKind(kind)}</span> ${escapeHtml(previewText)}`;
-            const full = document.createElement('div');
-            full.className = 'system-message-full';
-            full.innerHTML = renderMarkdown(text || '');
-            full.style.display = 'none';
-            preview.onclick = function () {
-                const collapsed = full.style.display === 'none';
-                full.style.display = collapsed ? 'block' : 'none';
-                preview.classList.toggle('expanded', collapsed);
-            };
-            wrapper.appendChild(preview);
-            wrapper.appendChild(full);
-            if (group.classList.contains('collapsed')) {
-                wrapper.style.display = 'none';
-            }
-            group.appendChild(wrapper);
-            group._lastNonSystem = false;
-            chatLog.scrollTop = chatLog.scrollHeight;
+        // Render all messages (including system) inline, no collapsible/group for system
+        const entry = document.createElement('div');
+        entry.className = `chat-entry ${kind}`;
+        if (kind === 'assistant') {
+            entry.innerHTML = `<span class=\"chat-label\">${labelForKind(kind)}</span> ${renderMarkdown(text || '')}`;
         } else {
-            // Mark last group as closed to start a new one for next system message
-            if (lastSystemGroup && !lastSystemGroup._closed) {
-                lastSystemGroup._closed = true;
-                lastSystemGroup._lastNonSystem = true;
-            }
-            const entry = document.createElement('div');
-            entry.className = `chat-entry ${kind}`;
-            if (kind === 'assistant') {
-                entry.innerHTML = `<span class=\"chat-label\">${labelForKind(kind)}</span> ${renderMarkdown(text || '')}`;
-            } else {
-                entry.innerHTML = `<span class=\"chat-label\">${labelForKind(kind)}</span> ${formatInline(text || '').replace(/\n/g, '<br>')}`;
-            }
-            chatLog.appendChild(entry);
-            chatLog.scrollTop = chatLog.scrollHeight;
+            entry.innerHTML = `<span class=\"chat-label\">${labelForKind(kind)}</span> ${formatInline(text || '').replace(/\n/g, '<br>')}`;
         }
+        chatLog.appendChild(entry);
+        chatLog.scrollTop = chatLog.scrollHeight;
     }
 
     function labelForKind(kind) {
@@ -337,7 +279,7 @@
     }
 
     function setControlsEnabled(enabled) {
-        [sendButton, toggleDebugButton, listToolsButton, newSessionButton].forEach((button) => {
+        [sendButton, listToolsButton, newSessionButton].forEach((button) => {
             button.disabled = !enabled;
         });
         messageInput.disabled = !enabled;
@@ -359,7 +301,11 @@
                 setSendEnabled(true);
                 break;
             case 'system':
-                appendEntry('system', message.message || '');
+                if (typeof message.message === 'string' && message.message.includes('[DEBUG]')) {
+                    console.log('[Codex Chat][DEBUG]', message.message);
+                } else {
+                    appendEntry('system', message.message || '');
+                }
                 showSpinner(false);
                 setSendEnabled(true);
                 break;

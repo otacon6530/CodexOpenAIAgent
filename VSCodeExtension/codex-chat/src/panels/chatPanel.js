@@ -93,7 +93,7 @@ class ChatPanel {
             <span id="status" class="status">Connecting…</span>
             <span id="spinner" class="spinner" style="display:none" aria-label="Loading"></span>
             <div class="actions">
-                <button id="toggleDebug" disabled>Toggle Debug</button>
+                
                 <button id="listTools" disabled>List Tools</button>
                 <button id="newSession" disabled>New Session</button>
                 <button id="reconnect">Reconnect</button>
@@ -207,12 +207,7 @@ class ChatPanel {
                     });
                 }
                 break;
-            case 'toggleDebug':
-                if (this.bridge && this.bridge.isRunning) {
-                    this.bridge.send({ type: 'toggle_debug' }).catch((error) => {
-                        this.postToWebview({ type: 'status', level: 'error', message: `Failed to toggle debug: ${error.message || error}` });
-                    });
-                }
+            // Removed debug toggle handling
                 break;
             case 'listTools':
                 if (this.bridge && this.bridge.isRunning) {
@@ -250,13 +245,13 @@ class ChatPanel {
             return;
         }
 
+        // Debug messages are now only logged to console
         if (typeof message.debug === 'boolean') {
             this.debugEnabled = message.debug;
         }
-
         if (Array.isArray(message.debug) && message.debug.length > 0) {
             message.debug.forEach((line) => {
-                this.postToWebview({ type: 'system', message: line });
+                console.log('[Codex Chat][DEBUG]', line);
             });
         }
 

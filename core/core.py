@@ -115,15 +115,20 @@ def _process_tool_calls(response_text, history, client, tools, config, debug_lin
             if tool_name in tools:
                 try:
                     output = tools[tool_name]["run"](tool_args)
-                    message = output if output else '(No output)'
-                    if first_tool_output is None:
-                        first_tool_output = message
+                    if output:
+                        message = output
+                        if first_tool_output is None:
+                            first_tool_output = message
+                        history.add_system_message(message)
+                        tool_messages.append(message)
                 except Exception as exc:
                     message = f"[Tool {tool_name}] Error: {exc}"
+                    history.add_system_message(message)
+                    tool_messages.append(message)
             else:
                 message = f"[Tool {tool_name}] not found."
-            history.add_system_message(message)
-            tool_messages.append(message)
+                history.add_system_message(message)
+                tool_messages.append(message)
             if debug_metrics:
                 preview = tool_args[:40] + ("…" if len(tool_args) > 40 else "")
                 debug_lines.append(f"[DEBUG] Tool {tool_name} invoked with args: {preview}")
