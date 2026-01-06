@@ -24,12 +24,15 @@ class ConversationHistory:
         # Only add system messages that are NOT tool descriptions
         for m in self._messages:
             if m["role"] == "system" and not ("Available tools:" in m["content"]):
-                prompt.append(m)
+                m_no_meta = {k: v for k, v in m.items() if k != "metadata"}
+                prompt.append(m_no_meta)
         if tool_instructions:
             prompt.append({"role": "system", "content": tool_instructions})
         # Only include the last N user/assistant turns (excluding system)
         non_system = [m for m in self._messages if m["role"] != "system"]
-        prompt.extend(non_system[-recent_turns*2:])
+        for m in non_system[-recent_turns*2:]:
+            m_no_meta = {k: v for k, v in m.items() if k != "metadata"}
+            prompt.append(m_no_meta)
         return prompt
 
     def __init__(
@@ -224,6 +227,9 @@ class ConversationHistory:
 class History:
     def __init__(self, *args, **kwargs):
         self.history = ConversationHistory(*args, **kwargs)
+
+    def get_efficient_prompt(self, *args, **kwargs):
+        return self.history.get_efficient_prompt(*args, **kwargs)
 
     def add_system_message(self, *args, **kwargs):
         return self.history.add_system_message(*args, **kwargs)

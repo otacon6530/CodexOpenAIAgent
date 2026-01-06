@@ -42,8 +42,14 @@ def _collect_response(client, history, on_chunk=None):
     # Only include system/tool instructions once, and last 3 turns for efficiency
     from core.functions.build_tools_prompt import build_tools_prompt
     tool_instructions = build_tools_prompt(load_tools())
+    if not hasattr(history, "get_efficient_prompt"):
+        raise AttributeError("History object must implement get_efficient_prompt in production.")
     messages = history.get_efficient_prompt(include_system=True, recent_turns=3, tool_instructions=tool_instructions)
-    logger.info(f"LLM PROMPT: {json.dumps(messages)}")
+    # Strip metadata from log (should already be stripped, but double-sanitize for safety)
+    log_prompt = [
+        {k: v for k, v in m.items() if k in ("role", "content")} for m in messages
+    ]
+    logger.info(f"LLM PROMPT: {json.dumps(log_prompt)}")
     for chunk in client.stream_chat(messages):
         response += chunk
         if on_chunk:
@@ -520,7 +526,7 @@ def main():
             decision = "plan"
             force_plan_mode = False
         else:
-            # Improved router prompt for plan/respond decision
+            # Improved router prompt for plan/respond decision as a system message
             router_prompt = (
                 "You are an AI assistant that can either answer questions directly or plan multi-step solutions using available tools.\n"
                 "For the following user request, decide if it requires multi-step planning (using tools or actions in sequence) or if you can answer it directly.\n"
@@ -531,7 +537,7 @@ def main():
             )
             # Save current history state
             history_snapshot = history.snapshot()
-            history.add_user_message(router_prompt)
+            history.add_system_message(router_prompt)
             router_response, _ = _collect_response(client, history)
             decision = router_response.strip().lower()
             # Restore history to before router prompt
