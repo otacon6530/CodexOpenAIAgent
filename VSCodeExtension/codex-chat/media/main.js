@@ -110,6 +110,14 @@
             return;
         }
         appendEntry('user', text);
+        // Add a temporary 'thinking' entry in the chat
+        const thinkingId = 'thinking-entry';
+        const thinkingDiv = document.createElement('div');
+        thinkingDiv.className = 'chat-entry assistant thinking';
+        thinkingDiv.id = thinkingId;
+        thinkingDiv.innerHTML = `<span class="chat-label">Assistant:</span> <span class="spinner-inline"></span> <span class="thinking-label">Thinking…</span>`;
+        chatLog.appendChild(thinkingDiv);
+        chatLog.scrollTop = chatLog.scrollHeight;
         showSpinner(true);
         setSendEnabled(false);
         vscode.postMessage({ type: 'send', content: text });
@@ -122,7 +130,13 @@
 
     function showSpinner(show) {
         if (spinnerEl) {
-            spinnerEl.style.display = show ? '' : 'none';
+            if (show) {
+                spinnerEl.style.display = '';
+                spinnerEl.innerHTML = `<svg width="18" height="18" viewBox="0 0 50 50"><circle cx="25" cy="25" r="20" fill="none" stroke="currentColor" stroke-width="5" stroke-linecap="round" stroke-dasharray="31.4 31.4" transform="rotate(-90 25 25)"></circle></svg> <span class="thinking-label">Thinking…</span>`;
+            } else {
+                spinnerEl.style.display = 'none';
+                spinnerEl.innerHTML = '';
+            }
         }
     }
 
@@ -295,11 +309,15 @@
             return;
         }
         switch (message.type) {
-            case 'assistant':
+            case 'assistant': {
+                // Remove the 'thinking' entry if present
+                const thinkingDiv = document.getElementById('thinking-entry');
+                if (thinkingDiv) thinkingDiv.remove();
                 appendEntry('assistant', message.message || '');
                 showSpinner(false);
                 setSendEnabled(true);
                 break;
+            }
             case 'system':
                 if (typeof message.message === 'string') {
                     console.log('[Codex Chat][SYSTEM]', message.message);

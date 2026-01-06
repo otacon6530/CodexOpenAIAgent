@@ -41,6 +41,31 @@
     animation: spin 1s linear infinite;
 }
 
+.spinner-inline {
+    display: inline-block;
+    width: 1em;
+    height: 1em;
+    vertical-align: middle;
+    border: 2px solid var(--vscode-editor-foreground, #888);
+    border-top: 2px solid var(--vscode-editor-background, #fff);
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+    margin-right: 6px;
+}
+
+.thinking-label {
+    font-size: 1em;
+    color: var(--vscode-editor-foreground, #888);
+    vertical-align: middle;
+}
+
+.thinking-label {
+    font-size: 1em;
+    margin-left: 8px;
+    color: var(--vscode-editor-foreground, #888);
+    vertical-align: middle;
+}
+
 @keyframes spin {
     0% { transform: rotate(0deg); }
     100% { transform: rotate(360deg); }
