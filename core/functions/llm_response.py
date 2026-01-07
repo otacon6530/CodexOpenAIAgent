@@ -131,8 +131,16 @@ def _send(payload):
 def _wait_for_message(expected_type, expected_id=None, timeout=None):
     import time
     deadline = time.time() + timeout if timeout else None
+    import sys, json
     while True:
         if deadline is not None and time.time() > deadline:
             return None
-        # This should be replaced with the actual message reading logic from your main loop
-        return None  # Placeholder
+        try:
+            line = sys.stdin.readline()
+            if not line:
+                continue
+            message = json.loads(line.strip())
+            if message.get("type") == expected_type and (expected_id is None or message.get("id") == expected_id):
+                return message
+        except Exception:
+            continue
