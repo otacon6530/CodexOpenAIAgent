@@ -10,6 +10,8 @@ try:
     logger.info("imported sys")
     import time
     logger.info("imported time")
+    import argparse
+    logger.info("imported argparse")
     from core.functions.openai_client import OpenAIClient
     logger.info("imported OpenAIClient")
     from core.functions.load_config import load_config
@@ -204,6 +206,31 @@ def main():
         seed_history_with_system_prompts(history, tools)
         debug_metrics = config.get("debug_metrics", False)
 
+        parser = argparse.ArgumentParser(add_help=False)
+        parser.add_argument("--planOnly", nargs="*", default=None)
+        known_args, _ = parser.parse_known_args(sys.argv[1:])
+        plan_only_args = known_args.planOnly
+        if plan_only_args is not None:
+            if not plan_only_args:
+                print("planOnly mode requires a message.", file=sys.stderr)
+                return
+            plan_only_message = " ".join(plan_only_args)
+            logger.info("main: running in planOnly CLI mode")
+            history_snapshot = history.snapshot()
+            history.add_user_message(plan_only_message)
+            chain_limit = max(1, int(config.get("chain_limit", 25)))
+            plan_prompt = (
+                "Given the user's request, break it down into a numbered list of concrete steps (tools or actions) to achieve the goal. "
+                f"Only plan up to {chain_limit} steps. Respond with the plan as a numbered list."
+            )
+            history.add_user_message(plan_prompt)
+            plan_response, plan_elapsed = collect_response(client, history, tools)
+            history.restore(history_snapshot)
+            if debug_metrics:
+                logger.info(f"planOnly CLI planning time: {plan_elapsed:.2f}s")
+            print(plan_response)
+            return
+
         _send({"type": "ready", "debug": debug_metrics})
 
         force_plan_mode = False
@@ -281,6 +308,22 @@ def main():
             # If mode is 'plan', force planning for this request
             if mode == "plan":
                 force_plan_mode = True
+
+            if mode == "planOnly":
+                history_snapshot = history.snapshot()
+                history.add_user_message(user_input)
+                chain_limit = max(1, int(config.get("chain_limit", 25)))
+                plan_prompt = (
+                    "Given the user's request, break it down into a numbered list of concrete steps (tools or actions) to achieve the goal. "
+                    f"Only plan up to {chain_limit} steps. Respond with the plan as a numbered list."
+                )
+                history.add_user_message(plan_prompt)
+                plan_response, plan_elapsed = collect_response(client, history, tools)
+                history.restore(history_snapshot)
+                if debug_metrics:
+                    debug_lines.append(f"[DEBUG] Planning time: {plan_elapsed:.2f}s")
+                _send({"type": "assistant", "content": plan_response, "debug": debug_lines, "extras": aux_messages})
+                continue
 
             # For any mode, process LLM response for tool calls using process_tool_calls (restores shell approval logic)
             if mode in {"ask", "default", "plan"} or True:
