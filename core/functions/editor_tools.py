@@ -60,32 +60,46 @@ def inject_editor_tools(tools, request_editor_query, parse_editor_payload):
             if len(sorted_diags) > per_file_limit:
                 lines.append(f"    … {len(sorted_diags) - per_file_limit} more entries")
         return "\n".join(lines)
+    from core.classes.Logger import Logger
+    logger = Logger()
     def diagnostics_tool(arguments):
+        logger.info(f"[editor_tools] diagnostics_tool called with arguments: {arguments}")
         payload = parse_editor_payload(arguments)
         try:
             result = request_editor_query("diagnostics", payload or None)
+            logger.info(f"[editor_tools] diagnostics_tool result: {result}")
         except Exception as exc:
+            logger.error(f"Diagnostics query failed: {exc}")
             return f"Diagnostics query failed: {exc}"
         return format_diagnostics(result)
     def open_editors_tool(arguments):
+        logger.info(f"[editor_tools] open_editors_tool called with arguments: {arguments}")
         try:
             result = request_editor_query("open_editors")
+            logger.info(f"[editor_tools] open_editors_tool result: {result}")
         except Exception as exc:
+            logger.error(f"Open editors query failed: {exc}")
             return f"Open editors query failed: {exc}"
         return as_json(result)
     def workspace_info_tool(arguments):
+        logger.info(f"[editor_tools] workspace_info_tool called with arguments: {arguments}")
         try:
             result = request_editor_query("workspace_info")
+            logger.info(f"[editor_tools] workspace_info_tool result: {result}")
         except Exception as exc:
+            logger.error(f"Workspace info query failed: {exc}")
             return f"Workspace info query failed: {exc}"
         return as_json(result)
     def document_symbols_tool(arguments):
+        logger.info(f"[editor_tools] document_symbols_tool called with arguments: {arguments}")
         payload = parse_editor_payload(arguments)
         if not payload:
             payload = {}
         try:
             result = request_editor_query("document_symbols", payload)
+            logger.info(f"[editor_tools] document_symbols_tool result: {result}")
         except Exception as exc:
+            logger.error(f"Document symbols query failed: {exc}")
             return f"Document symbols query failed: {exc}"
         return as_json(result)
     tools["editor.diagnostics"] = {
