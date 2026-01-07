@@ -33,6 +33,7 @@ def process_tool_calls(response_text, history, client, tools, config, debug_line
         TOOL_PATTERN = re.compile(r"<tool:([a-zA-Z0-9_.\-]+)>(.*?)</tool>", re.DOTALL)
         max_iterations = max(1, int(config.get("tool_iterations", 3)))
         tool_messages = []
+        tool_history = []  # For summarizing recent tool calls
         text = response_text.strip()
         iterations = 0
         shell_approve_all = getattr(process_tool_calls, "shell_approve_all", False)
@@ -65,45 +66,75 @@ def process_tool_calls(response_text, history, client, tools, config, debug_line
                 tool_name = match.group(1).strip()
                 tool_args = match.group(2).strip()
                 logger.info(f"process_tool_calls: tool_name={tool_name}, tool_args={tool_args}")
-                if tool_name == "shell":
-                    if not shell_approve_all:
-                        cache_key = tool_args.strip()
-                        if cache_key in shell_approval_cache:
-                            approved, approve_all = shell_approval_cache[cache_key]
+                # Structured logging for tool calls
+                logger.info(f"[TOOL_CALL] name={tool_name} args={tool_args}")
+                retry_count = 0
+                max_retries = 1 if tool_name.startswith("editor.") else 0
+                while True:
+                    error_message = None
+                    if tool_name == "shell":
+                        if not shell_approve_all:
+                            cache_key = tool_args.strip()
+                            if cache_key in shell_approval_cache:
+                                approved, approve_all = shell_approval_cache[cache_key]
+                            else:
+                                approved, approve_all = request_shell_approval(tool_args)
+                                shell_approval_cache[cache_key] = (approved, approve_all)
+                            if approve_all:
+                                shell_approve_all = True
+                                process_tool_calls.shell_approve_all = True
+                            if not approved:
+                                message = f"[Tool shell] Command denied by user."
+                                history.add_system_message(message)
+                                tool_messages.append(message)
+                                tool_history.append({"tool": tool_name, "args": tool_args, "result": message, "status": "denied"})
+                                # Add user message for LLM feedback
+                                history.add_user_message("Shell command was denied. Please suggest a safer alternative or explain.")
+                                break
+                    if tool_name in tools:
+                        try:
+                            logger.info(f"Executing tool: {tool_name} with args: {tool_args}")
+                            output = tools[tool_name]["run"](tool_args)
+                            logger.info(f"Tool {tool_name} output: {output}")
+                            if output:
+                                message = output
+                                if first_tool_output is None:
+                                    first_tool_output = message
+                                history.add_system_message(message)
+                                tool_messages.append(message)
+                                tool_history.append({"tool": tool_name, "args": tool_args, "result": message, "status": "success"})
+                                break
+                            else:
+                                error_message = f"[Tool {tool_name}] returned no output."
+                        except Exception as exc:
+                            logger.error(f"Tool {tool_name} error: {exc}")
+                            error_message = f"[Tool {tool_name}] Error: {exc}"
+                    else:
+                        error_message = f"[Tool {tool_name}] not found."
+                    if error_message:
+                        history.add_system_message(error_message)
+                        tool_messages.append(error_message)
+                        tool_history.append({"tool": tool_name, "args": tool_args, "result": error_message, "status": "error"})
+                        # Extension tool error clarity
+                        if tool_name.startswith("editor."):
+                            history.add_user_message(f"The tool '{tool_name}' failed or is unavailable. Please check the VS Code extension or try again later.")
                         else:
-                            approved, approve_all = request_shell_approval(tool_args)
-                            shell_approval_cache[cache_key] = (approved, approve_all)
-                        if approve_all:
-                            shell_approve_all = True
-                            process_tool_calls.shell_approve_all = True
-                        if not approved:
-                            message = f"[Tool shell] Command denied by user."
-                            history.add_system_message(message)
-                            tool_messages.append(message)
+                            history.add_user_message(f"The tool '{tool_name}' failed. Please suggest an alternative or explain.")
+                        # Retry logic for transient extension errors
+                        if retry_count < max_retries:
+                            retry_count += 1
+                            logger.info(f"Retrying tool call {tool_name}, attempt {retry_count}")
                             continue
-                if tool_name in tools:
-                    try:
-                        logger.info(f"Executing tool: {tool_name} with args: {tool_args}")
-                        output = tools[tool_name]["run"](tool_args)
-                        logger.info(f"Tool {tool_name} output: {output}")
-                        if output:
-                            message = output
-                            if first_tool_output is None:
-                                first_tool_output = message
-                            history.add_system_message(message)
-                            tool_messages.append(message)
-                    except Exception as exc:
-                        logger.error(f"Tool {tool_name} error: {exc}")
-                        message = f"[Tool {tool_name}] Error: {exc}"
-                        history.add_system_message(message)
-                        tool_messages.append(message)
-                else:
-                    message = f"[Tool {tool_name}] not found."
-                    history.add_system_message(message)
-                    tool_messages.append(message)
+                        break
                 if debug_metrics:
                     preview = tool_args[:40] + ("…" if len(tool_args) > 40 else "")
                     debug_lines.append(f"[DEBUG] Tool {tool_name} invoked with args: {preview}")
+            # Summarize recent tool calls in prompt
+            if tool_history:
+                summary_lines = [f"Recent tool calls:"]
+                for entry in tool_history[-3:]:
+                    summary_lines.append(f"- {entry['tool']}({entry['args']}): {entry['status']} -> {entry['result']}")
+                history.add_system_message("\n".join(summary_lines))
             history.add_user_message("Please summarize or explain the result of the previous tool call for the user.")
             followup_response, followup_elapsed = collect_response(client, history, tools)
             llm_summaries.append(followup_response.strip())
