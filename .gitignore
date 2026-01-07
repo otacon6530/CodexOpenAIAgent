@@ -43,3 +43,4 @@ VSCodeExtension/codex-chat/.env
 VSCodeExtension/codex-chat/.vsce/
 VSCodeExtension/codex-chat/*.vsix
 VSCodeExtension/codex-chat/dist/
+llm_planOnly_log.txt
