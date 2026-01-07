@@ -295,12 +295,13 @@ def main():
         if mode == "plan":
             force_plan_mode = True
 
-        # If mode is 'ask', skip planning and tool use, force direct answer
-        if mode == "ask":
-            # Add user message and get direct LLM response, no planning or tool calls
+        # For any mode, process LLM response for tool calls using process_tool_calls (restores shell approval logic)
+        if mode in {"ask", "default", "plan"} or True:
             history.add_user_message(user_input)
             response, elapsed = collect_response(client, history, tools)
-            _send({"type": "assistant", "content": response, "debug": debug_lines})
+            final_response, tool_messages = process_tool_calls(response, history, client, tools, config, debug_lines, debug_metrics)
+            extras = tool_messages if tool_messages else []
+            _send({"type": "assistant", "content": final_response, "debug": debug_lines, "extras": extras})
             continue
         if user_input.startswith("!run "):
             response_text = _handle_skill(user_input[5:].strip(), history, client, tools, debug_metrics, debug_lines)
