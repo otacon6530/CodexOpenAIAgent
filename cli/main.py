@@ -16,7 +16,7 @@ from core.mcp import discover_mcp_tools, run_mcp_tool
 from core.tool_loader import load_tools
 from core.skills import list_skills, load_skill, save_skill
 from core.system_prompt import seed_history_with_system_prompts
-from core.classes.History import ConversationHistory
+from core.classes.Memory import ConversationHistory
 
 
 def _append_log(chat_log, style_name, message):

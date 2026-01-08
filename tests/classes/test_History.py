@@ -1,4 +1,4 @@
-from core.classes.History import ConversationHistory
+from core.classes.Memory import ConversationHistory
 
 def test_add_and_get_messages():
     h = ConversationHistory(token_window=1000)
