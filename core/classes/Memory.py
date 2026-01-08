@@ -7,6 +7,7 @@ from core.functions.shorten import shorten
 from core.functions.make_entry_metadata import make_entry_metadata
 from core.functions.promote_to_long_term import promote_to_long_term
 from core.functions.append_long_term_entry import append_long_term_entry
+from core.functions.seed_history_with_system_prompts import seed_history_with_system_prompts
 
 
 class ConversationHistory:
@@ -55,7 +56,7 @@ class ConversationHistory:
         self.running_summary: str = ""
 
         self._evicted_turn_buffer: Dict[int, List[Dict[str, Any]]] = defaultdict(list)
-
+        seed_history_with_system_prompts(self, None)
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------

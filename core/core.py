@@ -25,16 +25,15 @@ try:
     _PENDING_MESSAGES = []
 
     config = Config() #Load configuration
+    debug_metrics = config.get("debug_metrics", False)
     logger = Logger(config=config) #Initialize logger
     llm = LLM(config) #Initialize LLM client
     memory = Memory() #Initialize memory
     
     tool_manager = Tool() #Initialize tool loader
     tools = tool_manager.tools
-    
-    seed_history_with_system_prompts(memory, tools)
-    debug_metrics = config.get("debug_metrics", False)
 
+    #TODO create  argument handler class
     parser = argparse.ArgumentParser(add_help=False)
     parser.add_argument("--planOnly", nargs="*", default=None)
     known_args, _ = parser.parse_known_args(sys.argv[1:])
