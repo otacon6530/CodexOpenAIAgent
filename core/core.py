@@ -21,7 +21,6 @@ try:
     from core.functions._request_editor_query import _request_editor_query 
     from core.functions._next_message import _next_message
 
-
     TOOL_PATTERN = re.compile(r"<tool:([a-zA-Z0-9_.\-]+)>(.*?)</tool>", re.DOTALL)
     _PENDING_MESSAGES = []
 
@@ -32,7 +31,6 @@ try:
     
     tool_manager = Tool() #Initialize tool loader
     tools = tool_manager.tools
-    inject_editor_tools(tools, _request_editor_query, parse_editor_payload)
     
     seed_history_with_system_prompts(memory, tools)
     debug_metrics = config.get("debug_metrics", False)
