@@ -1,5 +1,5 @@
 import pytest
-from core.classes.API import API
+from core.classes.LLM import API
 
 class DummyClient:
     def stream_chat(self, messages):

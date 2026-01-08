@@ -1,9 +1,10 @@
 
-import json
 from core.classes.Logger import Logger
 logger = Logger()
 logger.info("core.py started")
 try:
+    from core.functions._send import _send
+    logger.info("imported _send")
     import re
     logger.info("imported re")
     import sys
@@ -12,198 +13,50 @@ try:
     logger.info("imported time")
     import argparse
     logger.info("imported argparse")
-    from core.functions.openai_client import OpenAIClient
-    logger.info("imported OpenAIClient")
-    from core.functions.load_config import load_config
-    logger.info("imported load_config")
-    from core.classes.History import History
-    logger.info("imported History")
-    from core.functions.discover_mcp_tools import discover_mcp_tools
-    logger.info("imported discover_mcp_tools")
-    from core.functions.run_mcp_tool import run_mcp_tool
-    logger.info("imported run_mcp_tool")
+    from core.classes.Memory import Memory
+    logger.info("imported Memory")
     from core.functions.list_skills import list_skills
     logger.info("imported list_skills")
-    from core.functions.load_skill import load_skill
-    logger.info("imported load_skill")
     from core.functions.save_skill import save_skill
     logger.info("imported save_skill")
     from core.functions.seed_history_with_system_prompts import seed_history_with_system_prompts
     logger.info("imported seed_history_with_system_prompts")
-    from core.functions.load_tools import load_tools
-    logger.info("imported load_tools")
+    from core.functions._load_all_tools import _load_all_tools
+    logger.info("imported _load_all_tools")
+    from core.functions._format_tools import _format_tools
+    logger.info("imported _format_tools")
+    from core.functions.core_utils import parse_editor_payload
+    logger.info("imported parse_editor_payload")
+    from core.functions.editor_tools import inject_editor_tools
+    logger.info("imported inject_editor_tools")
+    from core.functions.llm_response import collect_response, process_tool_calls
+    logger.info("imported collect_response and process_tool_calls")
+    from core.functions._request_editor_query import _request_editor_query  
+    logger.info("imported _request_editor_query")
+    from core.functions._next_message import _next_message
+    logger.info("imported _next_message")
+    from core.classes.Config import Config
+    logger.info("imported Config")
+    from core.classes.LLM import LLM
+    logger.info("imported API")
 except Exception as e:
     logger.error(f"Exception during imports: {e}")
+    _send({"type": "error", "content": f"Exception during imports: {e}"})
     raise
 
 TOOL_PATTERN = re.compile(r"<tool:([a-zA-Z0-9_.\-]+)>(.*?)</tool>", re.DOTALL)
 _PENDING_MESSAGES = []
 
-
-def _load_all_tools():
-    tools = load_tools()
-    mcp_tools = discover_mcp_tools()
-    for name, description in mcp_tools.items():
-        tools[name] = {
-            "run": lambda arguments, n=name: run_mcp_tool(n, arguments),
-            "description": f"(MCP) {description}",
-        }
-    return tools
-
-
-def _format_tools(tools):
-    return "\n".join([f"- {name}: {meta['description']}" for name, meta in tools.items()])
-
-
-from core.functions.core_utils import load_all_tools, format_tools, parse_editor_payload
-from core.functions.editor_tools import inject_editor_tools
-from core.functions.agent_planning import summarize_plan, summarize_tool_use
-from core.functions.router_utils import format_router_result, verify_tool_result
-from core.functions.llm_response import collect_response, process_tool_calls
-
-def _send(payload):
-    try:
-        debug_message = json.dumps(payload)
-    except Exception:
-        debug_message = str(payload)
-    logger.info(f"SEND: {debug_message}")
-    print(f"[DEBUG] Sending to extension: {debug_message}", file=sys.stderr)
-    sys.stdout.write(json.dumps(payload) + "\n")
-    sys.stdout.flush()
-
-
-def _read_raw_message():
-    logger.info("_read_raw_message: waiting for input on stdin...")
-    while True:
-        line = sys.stdin.readline()
-        logger.info(f"_read_raw_message: read line: {repr(line)}")
-        if not line:
-            logger.info("_read_raw_message: EOF on stdin, returning None")
-            return None
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            msg = json.loads(line)
-            logger.info(f"RECEIVE: {json.dumps(msg)}")
-            return msg
-        except json.JSONDecodeError:
-            logger.info(f"_read_raw_message: Invalid JSON input: {line}")
-            _send({"type": "error", "content": "Invalid JSON input."})
-
-
-def _pop_buffered_message(expected_type=None, expected_id=None):
-    if not _PENDING_MESSAGES:
-        return None
-    if expected_type is None:
-        return _PENDING_MESSAGES.pop(0)
-    for index, message in enumerate(_PENDING_MESSAGES):
-        if message.get("type") != expected_type:
-            continue
-        if expected_id is not None and message.get("id") != expected_id:
-            continue
-        return _PENDING_MESSAGES.pop(index)
-    return None
-
-
-def _next_message():
-    logger.info("_next_message: checking for buffered message...")
-    buffered = _pop_buffered_message()
-    if buffered is not None:
-        logger.info(f"RECEIVE (buffered): {json.dumps(buffered)}")
-        return buffered
-    logger.info("_next_message: no buffered message, calling _read_raw_message()")
-    return _read_raw_message()
-
-
-def _wait_for_message(expected_type, expected_id=None, timeout=None):
-    if expected_type is None:
-        raise ValueError("expected_type is required")
-
-    deadline = time.time() + timeout if timeout else None
-
-    buffered = _pop_buffered_message(expected_type, expected_id)
-    if buffered is not None:
-        logger.info(f"RECEIVE (wait/buffered): {json.dumps(buffered)}")
-        return buffered
-
-    while True:
-        if deadline is not None and time.time() > deadline:
-            return None
-        message = _read_raw_message()
-        if message is None:
-            return None
-        if message.get("type") == expected_type and (expected_id is None or message.get("id") == expected_id):
-            return message
-        _PENDING_MESSAGES.append(message)
-
-
-def _handle_skill(skill_name, history, client, tools, debug_metrics, debug_lines):
-    skill = load_skill(skill_name)
-    if not skill:
-        return f"Skill '{skill_name}' not found."
-    result_lines = [f"Running skill: {skill['name']}"]
-    for index, step in enumerate(skill.get("steps", []), start=1):
-        result_lines.append(f"[Skill Step {index}] {step}")
-        history.add_user_message(f"Skill step: {step}")
-        step_response, elapsed = collect_response(client, history, tools)
-        history.add_assistant_message(step_response)
-        result_lines.append(step_response.strip())
-        if debug_metrics:
-            debug_lines.append(f"[DEBUG] Skill step {index} time: {elapsed:.2f}s")
-    result_lines.append("[Skill complete. Returning to chat.]")
-    return "\n".join(result_lines)
-
-
-def _request_editor_query(query, payload=None, timeout=10):
-    import uuid
-
-    request_id = str(uuid.uuid4())
-    message = {"type": "editor_query", "query": query, "id": request_id}
-    if payload is not None:
-        message["payload"] = payload
-
-    _send(message)
-
-    response = _wait_for_message("editor_query_response", request_id, timeout=timeout)
-    if response is None:
-        raise RuntimeError("No response from VS Code extension.")
-    if response.get("error"):
-        raise RuntimeError(response.get("error"))
-    return response.get("result")
-
 def main():
     try:
         logger.info("main: entered main() function")
-        
-        try:
-            logger.info("main: importing Config")
-            from core.classes.Config import Config
-            logger.info("main: imported Config")
-        except Exception as e:
-            logger.error(f"Exception importing Config: {e}")
-            raise
-        logger.info("main: starting Codex backend main loop")
-        from core.classes.Config import Config
-
         config = Config()
-        client = OpenAIClient(config)
-        # Test LLM connection before ready
-        try:
-            # Minimal prompt to test connection
-            test_messages = [{"role": "system", "content": "ping"}]
-            for _ in client.stream_chat(test_messages):
-                break  # Only need to check connection, not full response
-            llm_ok = True
-        except Exception as e:
-            logger.error(f"LLM connection failed: {e}")
-            _send({"type": "error", "content": f"LLM connection failed: {e}"})
-            return
+        llm = LLM(config)
 
-        history = History()
+        memory = Memory()
         tools = _load_all_tools()
         inject_editor_tools(tools, _request_editor_query, parse_editor_payload)
-        seed_history_with_system_prompts(history, tools)
+        seed_history_with_system_prompts(memory, tools)
         debug_metrics = config.get("debug_metrics", False)
 
         parser = argparse.ArgumentParser(add_help=False)
@@ -216,16 +69,16 @@ def main():
                 return
             plan_only_message = " ".join(plan_only_args)
             logger.info("main: running in planOnly CLI mode")
-            history_snapshot = history.snapshot()
-            history.add_user_message(plan_only_message)
+            history_snapshot = memory.snapshot()
+            memory.add_user_message(plan_only_message)
             chain_limit = max(1, int(config.get("chain_limit", 25)))
             plan_prompt = (
                 "Given the user's request, break it down into a numbered list of concrete steps (tools or actions) to achieve the goal. "
                 f"Only plan up to {chain_limit} steps. Respond with the plan as a numbered list."
             )
-            history.add_user_message(plan_prompt)
-            plan_response, plan_elapsed = collect_response(client, history, tools)
-            history.restore(history_snapshot)
+            memory.add_user_message(plan_prompt)
+            plan_response, plan_elapsed = collect_response(llm.client, memory, tools)
+            memory.restore(history_snapshot)
             if debug_metrics:
                 logger.info(f"planOnly CLI planning time: {plan_elapsed:.2f}s")
             print(plan_response)
@@ -284,11 +137,11 @@ def main():
                 _send({"type": "assistant", "content": "\n".join(aux_messages), "debug": debug_lines})
                 continue
             if user_input == "!new":
-                history = History()
+                memory = Memory()
                 tools = _load_all_tools()
                 inject_editor_tools(tools, _request_editor_query, parse_editor_payload)
-                seed_history_with_system_prompts(history, tools)
-                aux_messages.append("[History cleared]")
+                seed_history_with_system_prompts(memory, tools)
+                aux_messages.append("[Memory cleared]")
                 _send({"type": "assistant", "content": "\n".join(aux_messages), "debug": debug_lines})
                 continue
             if user_input == "!debug":
@@ -310,16 +163,16 @@ def main():
                 force_plan_mode = True
 
             if mode == "planOnly":
-                history_snapshot = history.snapshot()
-                history.add_user_message(user_input)
+                history_snapshot = memory.snapshot()
+                memory.add_user_message(user_input)
                 chain_limit = max(1, int(config.get("chain_limit", 25)))
                 plan_prompt = (
                     "Given the user's request, break it down into a numbered list of concrete steps (tools or actions) to achieve the goal. "
                     f"Only plan up to {chain_limit} steps. Respond with the plan as a numbered list."
                 )
-                history.add_user_message(plan_prompt)
-                plan_response, plan_elapsed = collect_response(client, history, tools)
-                history.restore(history_snapshot)
+                memory.add_user_message(plan_prompt)
+                plan_response, plan_elapsed = collect_response(llm.client, memory, tools)
+                memory.restore(history_snapshot)
                 if debug_metrics:
                     debug_lines.append(f"[DEBUG] Planning time: {plan_elapsed:.2f}s")
                 _send({"type": "assistant", "content": plan_response, "debug": debug_lines, "extras": aux_messages})
@@ -327,14 +180,14 @@ def main():
 
             # For any mode, process LLM response for tool calls using process_tool_calls (restores shell approval logic)
             if mode in {"ask", "default", "plan"} or True:
-                history.add_user_message(user_input)
-                response, elapsed = collect_response(client, history, tools)
-                final_response, tool_messages = process_tool_calls(response, history, client, tools, config, debug_lines, debug_metrics)
+                memory.add_user_message(user_input)
+                response, elapsed = collect_response(llm.client, memory, tools)
+                final_response, tool_messages = process_tool_calls(response, memory, llm.client, tools, config, debug_lines, debug_metrics)
                 extras = tool_messages if tool_messages else []
                 _send({"type": "assistant", "content": final_response, "debug": debug_lines, "extras": extras})
                 continue
             if user_input.startswith("!run "):
-                response_text = _handle_skill(user_input[5:].strip(), history, client, tools, debug_metrics, debug_lines)
+                response_text = _handle_skill(user_input[5:].strip(), memory, client, tools, debug_metrics, debug_lines)
                 _send({"type": "assistant", "content": response_text, "debug": debug_lines})
                 continue
             if user_input.startswith("!save_skill "):
@@ -391,7 +244,7 @@ def main():
                 continue
 
             # Add user message, but do NOT persist router prompt or its response in history
-            history.add_user_message(user_input)
+            memory.add_user_message(user_input)
 
             # If force_plan_mode is set, skip router and force planning
             if force_plan_mode:
@@ -407,13 +260,13 @@ def main():
                     f"User request: '{user_input}'\n"
                     "Reply with only one word: plan or respond"
                 )
-                # Save current history state
-                history_snapshot = history.snapshot()
-                history.add_system_message(router_prompt)
-                router_response, _ = collect_response(client, history, tools)
+                # Save current memory state
+                memory_snapshot = memory.snapshot()
+                memory.add_system_message(router_prompt)
+                router_response, _ = collect_response(llm.client, memory, tools)
                 decision = router_response.strip().lower()
-                # Restore history to before router prompt
-                history.restore(history_snapshot)
+                # Restore memory to before router prompt
+                memory.restore(memory_snapshot)
 
             if "plan" in decision:
                 chain_limit = max(1, int(config.get("chain_limit", 25)))
@@ -423,8 +276,8 @@ def main():
                     "Given the user's request, break it down into a numbered list of concrete steps (tools or actions) to achieve the goal. "
                     f"Only plan up to {chain_limit} steps. Respond with the plan as a numbered list."
                 )
-                history.add_user_message(plan_prompt)
-                plan_response, plan_elapsed = collect_response(client, history, tools)
+                memory.add_user_message(plan_prompt)
+                plan_response, plan_elapsed = collect_response(llm.client, memory, tools)
                 if debug_metrics:
                     debug_lines.append(f"[DEBUG] Planning time: {plan_elapsed:.2f}s")
                 steps = re.findall(r"\d+\.\s*(.*)", plan_response)
@@ -456,12 +309,12 @@ def main():
                         if feedback:
                             execute_prompt += f" Previous feedback: {feedback}"
 
-                        history.add_user_message(execute_prompt)
-                        step_response, step_elapsed = collect_response(client, history, tools)
+                        memory.add_user_message(execute_prompt)
+                        step_response, step_elapsed = collect_response(llm.client, memory, tools)
                         if debug_metrics:
                             debug_lines.append(f"[DEBUG] Step {index} attempt {attempt_order} execution time: {step_elapsed:.2f}s")
 
-                        step_result, step_extras = process_tool_calls(step_response, history, client, tools, config, debug_lines, debug_metrics)
+                        step_result, step_extras = process_tool_calls(step_response, memory, llm.client, tools, config, debug_lines, debug_metrics)
                         extras_payload.extend(step_extras)
                         last_outcome = step_result
 
@@ -469,8 +322,8 @@ def main():
                             f"Based on the recent actions and results: {last_outcome}\n"
                             f"Did this complete step {index} ('{step}')? Answer 'yes' if complete, otherwise answer 'no' and explain what remains."
                         )
-                        history.add_user_message(verification_prompt)
-                        verification_response, verify_elapsed = collect_response(client, history, tools)
+                        memory.add_user_message(verification_prompt)
+                        verification_response, verify_elapsed = collect_response(llm.client, memory, tools)
                         if debug_metrics:
                             debug_lines.append(f"[DEBUG] Step {index} attempt {attempt_order} verification time: {verify_elapsed:.2f}s")
 
@@ -489,7 +342,7 @@ def main():
                         attempt += 1
                         if attempt > max_step_retries:
                             break
-                        history.add_user_message(
+                        memory.add_user_message(
                             f"Step '{step}' remains incomplete. Adjust your approach using this feedback: {feedback}. Then try again."
                         )
 
@@ -529,12 +382,12 @@ def main():
                     f"{step_summaries}\n"
                     "Respond concisely for the user."
                 )
-                history.add_user_message(summary_prompt)
-                summary_response, summary_elapsed = collect_response(client, history, tools)
+                memory.add_user_message(summary_prompt)
+                summary_response, summary_elapsed = collect_response(llm.client, memory, tools)
                 if debug_metrics:
                     debug_lines.append(f"[DEBUG] Final summary time: {summary_elapsed:.2f}s")
 
-                final_summary, final_extras = process_tool_calls(summary_response, history, client, tools, config, debug_lines, debug_metrics)
+                final_summary, final_extras = process_tool_calls(summary_response, memory, llm.client, tools, config, debug_lines, debug_metrics)
                 extras_payload.extend(final_extras)
 
                 _send({
@@ -545,14 +398,15 @@ def main():
                 })
                 continue
             else:
-                direct_response, direct_elapsed = collect_response(client, history, tools)
+                direct_response, direct_elapsed = collect_response(llm.client, memory, tools)
                 if debug_metrics:
                     debug_lines.append(f"[DEBUG] Response time: {direct_elapsed:.2f}s")
-                final_response, tool_messages = process_tool_calls(direct_response, history, client, tools, config, debug_lines, debug_metrics)
+                final_response, tool_messages = process_tool_calls(direct_response, memory, llm.client, tools, config, debug_lines, debug_metrics)
                 extras_payload = aux_messages + tool_messages
                 _send({"type": "assistant", "content": final_response, "debug": debug_lines, "extras": extras_payload})
     except Exception as e:
         logger.error(f"General Exception: {e}")
+        _send({"type": "error", "content": f"LLM connection failed: {e}"})
         raise
 
 if __name__ == "__main__":
