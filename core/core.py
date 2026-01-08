@@ -1,25 +1,25 @@
 
 
 try:
-    from core.classes.Config import Config
-    from core.classes.Logger import Logger
-    from core.functions._send import _send
     import re
     import sys
     import time
     import argparse
+    from core.classes.Config import Config
+    from core.classes.Logger import Logger
+    from core.classes.LLM import LLM
+    from core.classes.Tool import Tool
+    from core.functions._send import _send
     from core.classes.Memory import Memory
     from core.functions.list_skills import list_skills
     from core.functions.save_skill import save_skill
     from core.functions.seed_history_with_system_prompts import seed_history_with_system_prompts
-    from core.functions._load_all_tools import _load_all_tools
     from core.functions._format_tools import _format_tools
     from core.functions.core_utils import parse_editor_payload
     from core.functions.editor_tools import inject_editor_tools
     from core.functions.llm_response import collect_response, process_tool_calls
     from core.functions._request_editor_query import _request_editor_query 
     from core.functions._next_message import _next_message
-    from core.classes.LLM import LLM
 
 
     TOOL_PATTERN = re.compile(r"<tool:([a-zA-Z0-9_.\-]+)>(.*?)</tool>", re.DOTALL)
@@ -30,7 +30,8 @@ try:
     llm = LLM(config) #Initialize LLM client
     memory = Memory() #Initialize memory
     
-    tools = _load_all_tools() #Load tools
+    tool_manager = Tool() #Initialize tool loader
+    tools = tool_manager.tools
     inject_editor_tools(tools, _request_editor_query, parse_editor_payload)
     
     seed_history_with_system_prompts(memory, tools)
@@ -115,7 +116,6 @@ try:
             continue
         if user_input == "!new":
             memory = Memory()
-            tools = _load_all_tools()
             inject_editor_tools(tools, _request_editor_query, parse_editor_payload)
             seed_history_with_system_prompts(memory, tools)
             aux_messages.append("[Memory cleared]")
